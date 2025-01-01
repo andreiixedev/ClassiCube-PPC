@@ -2,7 +2,7 @@
 #define CC_CORE_H
 /*
 Core fixed-size integer types, automatic platform detection, and common small structs
-Copyright 2014-2023 ClassiCube | Licensed under BSD-3
+Copyright 2014-2025 ClassiCube | Licensed under BSD-3
 */
 
 #if _MSC_VER
@@ -367,7 +367,6 @@ typedef cc_uint8  cc_bool;
 #elif defined __3DS__
 	#define CC_BUILD_3DS
 	#define CC_BUILD_CONSOLE
-	#define CC_BUILD_LOWMEM
 	#define CC_BUILD_TOUCH
 	#define CC_BUILD_DUALSCREEN
 	#define DEFAULT_NET_BACKEND CC_NET_BACKEND_BUILTIN
