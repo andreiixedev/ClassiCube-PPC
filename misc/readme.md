@@ -16,4 +16,5 @@ TODO: Explain how to compile your own icon for all the platforms
 |macOS | Contains icons, Info.plist for generating macOS Application Bundle |
 |linux | Contains icons, script for generating a Desktop Entry |
 |xbox | Contains Xbox shaders |
+|ProxyPPC | Proxy server that allows downloading resources and texture packs from old PPC systems |
 |build_scripts | Contains scripts for compiling plugins and optimised ClassiCube executables|
