@@ -333,19 +333,51 @@ static void MusicAssets_CountMissing(void) {
 /*########################################################################################################################*
 *-----------------------------------------------------Music asset fetching -----------------------------------------------*
 *#########################################################################################################################*/
-#include "ProxyPPC.h"
+#include <openssl/ssl.h>
+#include <openssl/err.h>
+#include <curl/curl.h>
+#include <stdio.h>
+
+/* Callback function to handle the download */
+static size_t WriteCallback(void* contents, size_t size, size_t nmemb, void* userp) {
+    /* Implement handling the downloaded data */
+    return size * nmemb;
+}
 
 CC_NOINLINE static int MusicAsset_Download(const char* hash) {
-    cc_string url; 
-    char urlBuffer[URL_MAX_SIZE];
+    CURL* curl;
+    CURLcode res;
 
+    cc_string url; char urlBuffer[URL_MAX_SIZE];
     String_InitArray(url, urlBuffer);
-
     String_Format3(&url, "https://resources.download.minecraft.net/%r%r/%c", &hash[0], &hash[1], hash);
 
-    ApplyProxyPPC(&url);
+    /* Initialize CURL */
+    curl_global_init(CURL_GLOBAL_DEFAULT);
+    curl = curl_easy_init();
 
-    return Http_AsyncGetData(&url, 0);
+    if (curl) {
+        printf("Using libcurl version: %s\n", curl_version());
+        curl_easy_setopt(curl, CURLOPT_URL, url.buffer);
+        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteCallback);
+
+        /* Set up SSL options */
+        curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 1L);
+        curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 2L);
+
+        res = curl_easy_perform(curl);
+        if (res != CURLE_OK) {
+            fprintf(stderr, "curl_easy_perform() failed: %s\n", curl_easy_strerror(res));
+        } else {
+            printf("Download completed successfully\n");
+        }
+
+        curl_easy_cleanup(curl);
+    }
+
+    curl_global_cleanup();
+
+    return res == CURLE_OK ? 0 : -1;
 }
 
 
