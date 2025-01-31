@@ -628,56 +628,21 @@ void TexturePack_CheckPending(void) {
 	HttpRequest_Free(&item);
 }
 
-#include <openssl/ssl.h>
-#include <openssl/err.h>
-#include <curl/curl.h>
-#include <stdio.h>
-
-/* Callback function to handle the download */
-static size_t WriteCallback(void* contents, size_t size, size_t nmemb, void* userp) {
-    /* Implement handling the downloaded data */
-    return size * nmemb;
-}
-
 /* Asynchronously downloads the given texture pack */
 static void DownloadAsync(const cc_string* url) {
-    CURL* curl;
-    CURLcode res;
+	cc_string etag = String_Empty;
+	cc_string time = String_Empty;
 
-    cc_string etag = String_Empty;
-    cc_string time = String_Empty;
+	/* Only retrieve etag/last-modified headers if the file exists */
+	/* This inconsistency can occur if user deleted some cached files */
+	if (IsCached(url)) {
+		time = GetCachedLastModified(url);
+		etag = GetCachedETag(url);
+	}
 
-    if (IsCached(url)) {
-        time = GetCachedLastModified(url);
-        etag = GetCachedETag(url);
-    }
-
-    /* Initialize CURL */
-    curl_global_init(CURL_GLOBAL_DEFAULT);
-    curl = curl_easy_init();
-
-    if (curl) {
-        printf("Using libcurl version: %s\n", curl_version());
-        curl_easy_setopt(curl, CURLOPT_URL, url->buffer);
-        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteCallback);
-
-        /* Set up SSL options */
-        curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 1L);
-        curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 2L);
-
-        res = curl_easy_perform(curl);
-        if (res != CURLE_OK) {
-            fprintf(stderr, "curl_easy_perform() failed: %s\n", curl_easy_strerror(res));
-        } else {
-            printf("Download completed successfully\n");
-        }
-
-        curl_easy_cleanup(curl);
-    }
-
-    curl_global_cleanup();
+	Http_TryCancel(TexturePack_ReqID);
+	TexturePack_ReqID = Http_AsyncGetDataEx(url, HTTP_FLAG_PRIORITY, &time, &etag, NULL);
 }
-
 
 void TexturePack_Extract(const cc_string* url) {
 	if (url->length) DownloadAsync(url);
