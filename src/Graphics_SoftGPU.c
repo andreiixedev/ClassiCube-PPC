@@ -384,6 +384,79 @@ static CC_INLINE int FastFloor(float value) {
 	return valueI > value ? valueI - 1 : valueI;
 }
 
+static void DrawSprite2D(Vertex* V0, Vertex* V1, Vertex* V2) {
+	PackedCol vColor = V0->c;
+	int minX = (int)V0->x;
+	int minY = (int)V0->y;
+	int maxX = (int)V1->x;
+	int maxY = (int)V2->y;
+
+	// Reject triangles completely outside
+	if (maxX < 0 || minX > fb_maxX) return;
+	if (maxY < 0 || minY > fb_maxY) return;
+
+	int begTX = (int)(V0->u * curTexWidth);
+	int begTY = (int)(V0->v * curTexHeight);
+	int delTX = (int)(V1->u * curTexWidth)  - begTX;
+	int delTY = (int)(V2->v * curTexHeight) - begTY;
+
+	int width = maxX - minX, height = maxY - minY;
+
+	int fast =  delTX == width && delTY == height && 
+				(begTX + delTX < curTexWidth ) && 
+				(begTY + delTY < curTexHeight);
+
+	// Perform scissoring
+	minX = max(minX, 0); maxX = min(maxX, fb_maxX);
+	minY = max(minY, 0); maxY = min(maxY, fb_maxY);
+
+	for (int y = minY; y <= maxY; y++) 
+	{
+		int texY = fast ? (begTY + (y - minY)) : (((begTY + delTY * (y - minY) / height)) & texHeightMask);
+		for (int x = minX; x <= maxX; x++) 
+		{
+			int texX = fast ? (begTX + (x - minX)) : (((begTX + delTX * (x - minX) / width)) & texWidthMask);
+			int texIndex = texY * curTexWidth + texX;
+
+			BitmapCol color = curTexPixels[texIndex];
+			int R, G, B, A;
+
+			A = BitmapCol_A(color);
+			if (gfx_alphaBlend && A == 0) continue;
+			int cb_index = y * cb_stride + x;
+
+			if (gfx_alphaBlend && A != 255) {
+				BitmapCol dst = colorBuffer[cb_index];
+				int dstR = BitmapCol_R(dst);
+				int dstG = BitmapCol_G(dst);
+				int dstB = BitmapCol_B(dst);
+
+				R = BitmapCol_R(color);
+				G = BitmapCol_G(color);
+				B = BitmapCol_B(color);
+
+				R = (R * A + dstR * (255 - A)) >> 8;
+				G = (G * A + dstG * (255 - A)) >> 8;
+				B = (B * A + dstB * (255 - A)) >> 8;
+				color = BitmapCol_Make(R, G, B, 0xFF);
+			}
+
+			if (vColor != PACKEDCOL_WHITE) {
+				int r1 = PackedCol_R(vColor), r2 = BitmapCol_R(color);
+				R = ( r1 * r2 ) >> 8;
+				int g1 = PackedCol_G(vColor), g2 = BitmapCol_G(color);
+				G = ( g1 * g2 ) >> 8;
+				int b1 = PackedCol_B(vColor), b2 = BitmapCol_B(color);
+				B = ( b1 * b2 ) >> 8;
+
+				color = BitmapCol_Make(R, G, B, 0xFF);
+			}
+
+			colorBuffer[cb_index] = color;
+		}
+	}
+}
+
 #define edgeFunction(ax,ay, bx,by, cx,cy) (((bx) - (ax)) * ((cy) - (ay)) - ((by) - (ay)) * ((cx) - (ax)))
 
 static void DrawTriangle2D(Vertex* V0, Vertex* V1, Vertex* V2) {
@@ -883,11 +956,21 @@ static void DrawClipped(int mask, Vertex* v0, Vertex* v1, Vertex* v2, Vertex* v3
 	}
 }
 
-void DrawQuads(int startVertex, int verticesCount) {
+void DrawQuads(int startVertex, int verticesCount, DrawHints hints) {
 	Vertex vertices[4];
 	int j = startVertex;
 
-	if (gfx_rendering2D) {
+	if (gfx_rendering2D && hints == DRAW_HINT_SPRITE) {
+		// 4 vertices = 1 quad = 2 triangles
+		for (int i = 0; i < verticesCount / 4; i++, j += 4)
+		{
+			TransformVertex2D(j + 0, &vertices[0]);
+			TransformVertex2D(j + 1, &vertices[1]);
+			TransformVertex2D(j + 2, &vertices[2]);
+
+			DrawSprite2D(&vertices[0], &vertices[1], &vertices[2]);
+		}
+	} else if (gfx_rendering2D) {
 		// 4 vertices = 1 quad = 2 triangles
 		for (int i = 0; i < verticesCount / 4; i++, j += 4)
 		{
@@ -934,16 +1017,16 @@ void Gfx_SetVertexFormat(VertexFormat fmt) {
 
 void Gfx_DrawVb_Lines(int verticesCount) { } /* TODO */
 
-void Gfx_DrawVb_IndexedTris_Range(int verticesCount, int startVertex) {
-	DrawQuads(startVertex, verticesCount);
+void Gfx_DrawVb_IndexedTris_Range(int verticesCount, int startVertex, DrawHints hints) {
+	DrawQuads(startVertex, verticesCount, hints);
 }
 
 void Gfx_DrawVb_IndexedTris(int verticesCount) {
-	DrawQuads(0, verticesCount);
+	DrawQuads(0, verticesCount, DRAW_HINT_NONE);
 }
 
 void Gfx_DrawIndexedTris_T2fC4b(int verticesCount, int startVertex) {
-	DrawQuads(startVertex, verticesCount);
+	DrawQuads(startVertex, verticesCount, DRAW_HINT_NONE);
 }
 
 

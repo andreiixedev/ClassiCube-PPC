@@ -29,7 +29,7 @@ static vdp1_gouraud_table_t* gourad_base;
 static cc_bool noMemWarned;
 
 // NOINLINE to avoid polluting the hot path
-static CC_NOINLINE NextPrimitive_nomem(void) {
+static CC_NOINLINE vdp1_cmdt_t* NextPrimitive_nomem(void) {
 	if (noMemWarned) return NULL;
 	noMemWarned = true;
 	
@@ -611,7 +611,7 @@ static void DrawTexturedQuads3D(int verticesCount, int startVertex) {
 	}
 }
 
-void Gfx_DrawVb_IndexedTris_Range(int verticesCount, int startVertex) {
+void Gfx_DrawVb_IndexedTris_Range(int verticesCount, int startVertex, DrawHints hints) {
 	if (gfx_rendering2D) {
 		if (gfx_format == VERTEX_FORMAT_TEXTURED) {
 			DrawTexturedQuads2D(verticesCount, startVertex);
@@ -628,7 +628,7 @@ void Gfx_DrawVb_IndexedTris_Range(int verticesCount, int startVertex) {
 }
 
 void Gfx_DrawVb_IndexedTris(int verticesCount) {
-	Gfx_DrawVb_IndexedTris_Range(verticesCount, 0);
+	Gfx_DrawVb_IndexedTris_Range(verticesCount, 0, DRAW_HINT_NONE);
 }
 
 void Gfx_DrawIndexedTris_T2fC4b(int verticesCount, int startVertex) {

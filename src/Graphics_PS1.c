@@ -72,7 +72,7 @@ static void SetupContexts(int w, int h, int r, int g, int b) {
 }
 
 // NOINLINE to avoid polluting the hot path
-static CC_NOINLINE new_primitive_nomem(void) {
+static CC_NOINLINE void* new_primitive_nomem(void) {
 	if (noMemWarned) return NULL;
 	noMemWarned = true;
 	
@@ -84,7 +84,7 @@ static void* new_primitive(int size) {
 	uint8_t* prim  = next_packet;
 	next_packet += size;
 
-	if (next_packet <= next_packet_end);
+	if (next_packet <= next_packet_end)
 		return (void*)prim;
 	return new_primitive_nomem();
 }
@@ -1094,7 +1094,7 @@ static void DrawQuads(int verticesCount, int startVertex) {
 }
 
 
-void Gfx_DrawVb_IndexedTris_Range(int verticesCount, int startVertex) {
+void Gfx_DrawVb_IndexedTris_Range(int verticesCount, int startVertex, DrawHints hints) {
 	DrawQuads(verticesCount, startVertex);
 }
 
