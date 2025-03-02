@@ -329,11 +329,6 @@ static BitmapCol ExpandRGB(cc_uint8 bitsPerSample, int r, int g, int b) {
 	return BitmapCol_Make(r, g, b, 0);
 }
 
-#ifdef CC_BUILD_32X
-cc_result Png_Decode(struct Bitmap* bmp, struct Stream* stream) {
-	return ERR_NOT_SUPPORTED;
-}
-#else
 cc_result Png_Decode(struct Bitmap* bmp, struct Stream* stream) {
 	cc_uint8 tmp[64];
 	cc_uint32 dataSize, fourCC;
@@ -359,10 +354,9 @@ cc_result Png_Decode(struct Bitmap* bmp, struct Stream* stream) {
 
 	/* idat decompressor */
 #ifdef CC_BUILD_TINYSTACK
-	struct InflateState* inflate = (struct InflateState*)temp_mem;
+	static struct InflateState inflate;
 #else
-	struct InflateState _inflate;
-	struct InflateState* inflate = &_inflate;
+	struct InflateState inflate;
 #endif
 	struct Stream compStream, datStream;
 	struct ZLibHeader zlibHeader;
@@ -379,7 +373,7 @@ cc_result Png_Decode(struct Bitmap* bmp, struct Stream* stream) {
 	trnsColor  = BITMAPCOLOR_BLACK;
 	for (i = 0; i < PNG_PALETTE; i++) { palette[i] = BITMAPCOLOR_BLACK; }
 
-	Inflate_MakeStream2(&compStream, inflate, stream);
+	Inflate_MakeStream2(&compStream, &inflate, stream);
 	ZLibHeader_Init(&zlibHeader);
 
 	for (;;) {
@@ -474,7 +468,7 @@ cc_result Png_Decode(struct Bitmap* bmp, struct Stream* stream) {
 		/* 11.2.4 IDAT Image data */
 		case PNG_FourCC('I','D','A','T'): {
 			Stream_ReadonlyPortion(&datStream, stream, dataSize);
-			inflate->Source = &datStream;
+			inflate.Source = &datStream;
 
 			/* TODO: This assumes zlib header will be in 1 IDAT chunk */
 			while (!zlibHeader.done) {
@@ -552,7 +546,6 @@ cc_result Png_Decode(struct Bitmap* bmp, struct Stream* stream) {
 		if ((res = stream->Skip(stream, 4))) return res; /* Skip CRC32 */
 	}
 }
-#endif
 
 
 /*########################################################################################################################*

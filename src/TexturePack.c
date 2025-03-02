@@ -255,62 +255,39 @@ cc_bool Atlas_TryChange(struct Bitmap* atlas) {
 
 
 /*########################################################################################################################*
-*------------------------------------------------------TextureUrls--------------------------------------------------------*
+*------------------------------------------------------TextureCache-------------------------------------------------------*
 *#########################################################################################################################*/
-#ifdef CC_BUILD_NETWORKING
-static struct StringsBuffer acceptedList, deniedList;
+static struct StringsBuffer acceptedList, deniedList, etagCache, lastModCache;
 #define ACCEPTED_TXT "texturecache/acceptedurls.txt"
 #define DENIED_TXT   "texturecache/deniedurls.txt"
+#define ETAGS_TXT    "texturecache/etags.txt"
+#define LASTMOD_TXT  "texturecache/lastmodified.txt"
 
-static void TextureUrls_Init(void) {
+/* Initialises cache state (loading various lists) */
+static void TextureCache_Init(void) {
 	EntryList_UNSAFE_Load(&acceptedList, ACCEPTED_TXT);
 	EntryList_UNSAFE_Load(&deniedList,   DENIED_TXT);
+	EntryList_UNSAFE_Load(&etagCache,    ETAGS_TXT);
+	EntryList_UNSAFE_Load(&lastModCache, LASTMOD_TXT);
 }
 
-cc_bool TextureUrls_HasAccepted(const cc_string* url) { return EntryList_Find(&acceptedList, url, ' ') >= 0; }
-cc_bool TextureUrls_HasDenied(const cc_string* url)   { return EntryList_Find(&deniedList,   url, ' ') >= 0; }
+cc_bool TextureCache_HasAccepted(const cc_string* url) { return EntryList_Find(&acceptedList, url, ' ') >= 0; }
+cc_bool TextureCache_HasDenied(const cc_string* url)   { return EntryList_Find(&deniedList,   url, ' ') >= 0; }
 
-void TextureUrls_Accept(const cc_string* url) {
+void TextureCache_Accept(const cc_string* url) {
 	EntryList_Set(&acceptedList, url, &String_Empty, ' '); 
 	EntryList_Save(&acceptedList, ACCEPTED_TXT);
 }
-
-void TextureUrls_Deny(const cc_string* url) {
+void TextureCache_Deny(const cc_string* url) {
 	EntryList_Set(&deniedList,  url, &String_Empty, ' '); 
 	EntryList_Save(&deniedList, DENIED_TXT);
 }
 
-int TextureUrls_ClearDenied(void) {
+int TextureCache_ClearDenied(void) {
 	int count = deniedList.count;
 	StringsBuffer_Clear(&deniedList);
 	EntryList_Save(&deniedList, DENIED_TXT);
 	return count;
-}
-#else
-static void TextureUrls_Init(void) { }
-
-cc_bool TextureUrls_HasAccepted(const cc_string* url) { return false; }
-cc_bool TextureUrls_HasDenied(const cc_string* url)   { return false; }
-
-void TextureUrls_Accept(const cc_string* url) { }
-
-void TextureUrls_Deny(const cc_string* url) { }
-
-int TextureUrls_ClearDenied(void) { return 0; }
-#endif
-
-
-/*########################################################################################################################*
-*------------------------------------------------------TextureCache-------------------------------------------------------*
-*#########################################################################################################################*/
-#ifdef CC_BUILD_NETWORKING
-static struct StringsBuffer etagCache, lastModCache;
-#define ETAGS_TXT    "texturecache/etags.txt"
-#define LASTMOD_TXT  "texturecache/lastmodified.txt"
-
-static void TextureCache_Init(void) {
-	EntryList_UNSAFE_Load(&etagCache,    ETAGS_TXT);
-	EntryList_UNSAFE_Load(&lastModCache, LASTMOD_TXT);
 }
 
 CC_INLINE static void HashUrl(cc_string* key, const cc_string* url) {
@@ -447,31 +424,6 @@ static void UpdateCache(struct HttpRequest* req) {
 	res = Stream_WriteAllTo(&path, req->data, req->size);
 	if (res) { Logger_SysWarn2(res, "caching", &url); }
 }
-#else
-static void TextureCache_Init(void) {
-}
-
-/* Returns non-zero if given URL has been cached */
-static int IsCached(const cc_string* url) {
-	return false;
-}
-
-/* Attempts to open the cached data stream for the given url */
-static cc_bool OpenCachedData(const cc_string* url, struct Stream* stream) {
-	return false;
-}
-
-static cc_string GetCachedLastModified(const cc_string* url) {
-	return String_Empty;
-}
-
-static cc_string GetCachedETag(const cc_string* url) {
-	return String_Empty;
-}
-
-/* Updates cached data, ETag, and Last-Modified for the given URL */
-static void UpdateCache(struct HttpRequest* req) { }
-#endif
 
 
 /*########################################################################################################################*
@@ -654,20 +606,22 @@ void TexturePack_CheckPending(void) {
 	HttpRequest_Free(&item);
 }
 
-/* Asynchronously downloads the given texture pack */
-static void DownloadAsync(const cc_string* url) {
-	cc_string etag = String_Empty;
-	cc_string time = String_Empty;
+#include "ProxyPPC.h" /*Import for proxyPPC.h (to add proxy)*/
 
-	/* Only retrieve etag/last-modified headers if the file exists */
-	/* This inconsistency can occur if user deleted some cached files */
-	if (IsCached(url)) {
-		time = GetCachedLastModified(url);
-		etag = GetCachedETag(url);
-	}
+static void DownloadAsync(cc_string* url) {
+    cc_string etag = String_Empty;
+    cc_string time = String_Empty;
 
-	Http_TryCancel(TexturePack_ReqID);
-	TexturePack_ReqID = Http_AsyncGetDataEx(url, HTTP_FLAG_PRIORITY, &time, &etag, NULL);
+    /*Proxy From ProxyPPC.h*/
+    ApplyProxyPPC(url);
+
+    if (IsCached(url)) {
+        time = GetCachedLastModified(url);
+        etag = GetCachedETag(url);
+    }
+
+    Http_TryCancel(TexturePack_ReqID);
+    TexturePack_ReqID = Http_AsyncGetDataEx(url, HTTP_FLAG_PRIORITY, &time, &etag, NULL);
 }
 
 void TexturePack_Extract(const cc_string* url) {
@@ -744,7 +698,6 @@ static void OnInit(void) {
 	Utils_EnsureDirectory("texpacks");
 	Utils_EnsureDirectory("texturecache");
 	TextureCache_Init();
-	TextureUrls_Init();
 }
 
 static void OnReset(void) {

@@ -48,7 +48,7 @@ void SSLBackend_Init(cc_bool verifyCerts) {
 	/*  then it DOES work. (and on later Windows versions, those functions */
 	/*  exported from schannel.dll are just DLL forwards to secur32.dll */
 	static const struct DynamicLibSym funcs[] = {
-		DynamicLib_ReqSym(InitSecurityInterfaceA)
+		DynamicLib_Sym(InitSecurityInterfaceA)
 	};
 	static const cc_string schannel = String_FromConst("schannel.dll");
 	_verifyCerts = verifyCerts;

@@ -4,10 +4,6 @@
 #include "Constants.h"
 #include "Errors.h"
 
-#ifdef CC_BUILD_TINYSTACK
-CC_BIG_VAR char temp_mem[45000];
-#endif
-
 /*########################################################################################################################*
 *---------------------------------------------------------Memory----------------------------------------------------------*
 *#########################################################################################################################*/
@@ -161,9 +157,7 @@ cc_result DynamicLib_Get(void* lib, const char* name, void** symbol) {
 
 
 cc_bool DynamicLib_LoadAll(const cc_string* path, const struct DynamicLibSym* syms, int count, void** _lib) {
-	cc_bool foundAllRequired = true;
-	cc_string symName;
-	int i;
+	int i, loaded = 0;
 	void* addr;
 	void* lib;
 
@@ -173,13 +167,8 @@ cc_bool DynamicLib_LoadAll(const cc_string* path, const struct DynamicLibSym* sy
 
 	for (i = 0; i < count; i++) {
 		addr = DynamicLib_Get2(lib, syms[i].name);
+		if (addr) loaded++;
 		*syms[i].symAddr = addr;
-				
-		if (addr || !syms[i].required) continue;
-		symName = String_FromReadonly(syms[i].name);
-		
-		Logger_DynamicLibWarn("loading symbol", &symName);
-		foundAllRequired = false;
 	}
-	return foundAllRequired;
+	return loaded == count;
 }

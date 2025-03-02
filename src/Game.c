@@ -55,7 +55,6 @@ int     Game_FpsLimit, Game_Vertices;
 cc_bool Game_SimpleArmsAnim;
 static cc_bool gameRunning;
 static float gfx_minFrameMs;
-static cc_bool autoPause;
 
 cc_bool Game_ClassicMode, Game_ClassicHacks;
 cc_bool Game_AllowCustomBlocks;
@@ -361,7 +360,6 @@ static void LoadOptions(void) {
 		ServicePointManager.ServerCertificateValidationCallback = delegate { return true; };
 		Options.Set("skip-ssl-check", false);
 	}*/
-	autoPause = Options_GetBool(OPT_AUTO_PAUSE, true);
 }
 
 #ifdef CC_BUILD_PLUGINS
@@ -477,13 +475,7 @@ static void Game_Load(void) {
 	}
 
 	entTaskI = ScheduledTask_Add(GAME_DEF_TICKS, Entities_Tick);
-	Gfx_WarnIfNecessary();
-
-	if (Gfx.Limitations & GFX_LIMIT_VERTEX_ONLY_FOG)
-		EnvRenderer_SetMode(EnvRenderer_Minimal | ENV_LEGACY);
-	if (Gfx.BackendType == CC_GFX_BACKEND_SOFTGPU)
-		EnvRenderer_SetMode(ENV_MINIMAL);
-
+	if (Gfx_WarnIfNecessary()) EnvRenderer_SetMode(EnvRenderer_Minimal | ENV_LEGACY);
 	Server.BeginConnect();
 }
 
@@ -710,10 +702,6 @@ static CC_INLINE void Game_DrawFrame(float delta, float t) {
 		Gfx_SetTopRight();
 		Gui_RenderGui(delta);
 	}
-	for (i = 0; i < Array_Elems(Game.Draw2DHooks); i++)
-	{
-		if (Game.Draw2DHooks[i]) Game.Draw2DHooks[i](delta);
-	}
 #endif
 	Gfx_End2D();
 }
@@ -792,8 +780,7 @@ static CC_INLINE void Game_RenderFrame(void) {
 	Camera.Active->UpdateMouse(Entities.CurPlayer, delta);
 #endif
 
-	if (!Window_Main.Focused && !Gui.InputGrab && autoPause) 
-		Gui_ShowPauseMenu();
+	if (!Window_Main.Focused && !Gui.InputGrab) Gui_ShowPauseMenu();
 
 	if (Bind_IsTriggered[BIND_ZOOM_SCROLL] && !Gui.InputGrab) {
 		InputHandler_SetFOV(Camera.ZoomFov);

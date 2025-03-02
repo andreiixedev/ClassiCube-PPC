@@ -687,7 +687,7 @@ static void DrawIndexedVertices(int verticesCount, int startVertex) {
 	DrawArrays(NV097_SET_BEGIN_END_OP_QUADS, startVertex, verticesCount);
 }
 
-void Gfx_DrawVb_IndexedTris_Range(int verticesCount, int startVertex, DrawHints hints) {
+void Gfx_DrawVb_IndexedTris_Range(int verticesCount, int startVertex) {
 	DrawIndexedVertices(verticesCount, startVertex);
 }
 

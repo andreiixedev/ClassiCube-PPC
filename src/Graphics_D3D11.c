@@ -107,7 +107,7 @@ static PFN_D3D11_CREATE_DEVICE _D3D11CreateDevice;
 
 static void LoadD3D11Library(void) {
 	static const struct DynamicLibSym funcs[] = {
-		DynamicLib_ReqSym(D3D11CreateDevice)
+		DynamicLib_Sym(D3D11CreateDevice)
 	};
 	static const cc_string path = String_FromConst("d3d11.dll");
 	void* lib;
@@ -136,7 +136,7 @@ static void CreateDevice(void) {
 	// So for the sake of simplicity and since only a few old GPUs don't support feature level 10 anyways
 	//   https://walbourn.github.io/direct3d-feature-levels/
 	//   https://github.com/MonoGame/MonoGame/issues/5789
-	//  Just don't support GPUs that do not support at least feature level 10
+	//  I decided to just not support GPUs that do not support at least feature level 10
 	if (fl < D3D_FEATURE_LEVEL_10_0)
 		Logger_FailToStart("Your GPU is too old to support the Direct3D11 version.\nTry using the Direct3D9 version instead.\n");
 
@@ -495,7 +495,7 @@ void Gfx_DrawVb_IndexedTris(int verticesCount) {
 	ID3D11DeviceContext_DrawIndexed(context, ICOUNT(verticesCount), 0, 0);
 }
 
-void Gfx_DrawVb_IndexedTris_Range(int verticesCount, int startVertex, DrawHints hints) {
+void Gfx_DrawVb_IndexedTris_Range(int verticesCount, int startVertex) {
 	ID3D11DeviceContext_DrawIndexed(context, ICOUNT(verticesCount), 0, startVertex);
 }
 

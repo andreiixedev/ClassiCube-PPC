@@ -432,7 +432,6 @@ void Gfx_UpdateTexture(GfxResourceID texId, int x, int y, struct Bitmap* part, i
  	struct GPUTexture* tex = (struct GPUTexture*)texId;
 	ToMortonTexture(&tex->texture, x, y, part, rowWidth);
 }
-
 void Gfx_DeleteTexture(GfxResourceID* texId) {
 	GPUTexture_Unref(texId);
 }
@@ -984,7 +983,7 @@ static void SetVertexSource(int startVertex) {
 	// NOTE: Can't use GPUREG_VERTEX_OFFSET, it only works when drawing non-indexed arrays
 }
 
-void Gfx_DrawVb_IndexedTris_Range(int verticesCount, int startVertex, DrawHints hints) {
+void Gfx_DrawVb_IndexedTris_Range(int verticesCount, int startVertex) {
 	SetVertexSource(startVertex);
 	C3D_DrawElements(GPU_TRIANGLES, ICOUNT(verticesCount));
 }

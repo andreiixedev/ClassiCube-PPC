@@ -72,16 +72,6 @@ cc_bool Platform_ReadonlyFilesystem;
 #include <os2.h>
 #endif
 
-#if defined MAC_OS_X_VERSION_MIN_REQUIRED && (MAC_OS_X_VERSION_MIN_REQUIRED < 1040)
-	/* Really old mac OS versions don't have the dlopen/dlsym API */
-	#define USE_NS_DYNLOAD_API
-#else
-	#ifndef __USE_GNU
-	#define __USE_GNU
-	#endif
-	#include <dlfcn.h>
-#endif
-
 
 /*########################################################################################################################*
 *---------------------------------------------------------Memory----------------------------------------------------------*
@@ -440,14 +430,7 @@ void Thread_Run(void** handle, Thread_StartFunc func, int stackSize, const char*
 	if (res) Process_Abort2(res, "Creating thread");
 	pthread_attr_destroy(&attrs);
 	
-#if defined CC_BUILD_LINUX
-	static int (*FP_pthread_setname_np)(pthread_t thread, const char* name);
-	/* Not available on old libc versions, so load it dynamically */
-	if (!FP_pthread_setname_np) {
-		FP_pthread_setname_np = dlsym(RTLD_NEXT, "pthread_setname_np");
-	}
-	if (FP_pthread_setname_np) FP_pthread_setname_np(*ptr, name);
-#elif defined CC_BUILD_HAIKU
+#if defined CC_BUILD_LINUX || defined CC_BUILD_HAIKU
 	extern int pthread_setname_np(pthread_t thread, const char* name);
 	pthread_setname_np(*ptr, name);
 #elif defined CC_BUILD_FREEBSD || defined CC_BUILD_OPENBSD
@@ -641,7 +624,6 @@ void Platform_LoadSysFonts(void) {
 		Platform_Log1("Searching for fonts in %s", &dirs[i]);
 		Directory_Enum(&dirs[i], NULL, FontDirCallback);
 	}
-	Platform_LogConst("Finished searching for fonts");
 }
 
 
@@ -1250,7 +1232,7 @@ cc_result Updater_SetNewBuildTime(cc_uint64 timestamp) {
 /*########################################################################################################################*
 *-------------------------------------------------------Dynamic lib-------------------------------------------------------*
 *#########################################################################################################################*/
-#if defined USE_NS_DYNLOAD_API
+#if defined MAC_OS_X_VERSION_MIN_REQUIRED && (MAC_OS_X_VERSION_MIN_REQUIRED < 1040)
 /* Really old mac OS versions don't have the dlopen/dlsym API */
 const cc_string DynamicLib_Ext = String_FromConst(".dylib");
 
@@ -1287,6 +1269,7 @@ cc_bool DynamicLib_DescribeError(cc_string* dst) {
 	return true;
 }
 #else
+#include <dlfcn.h>
 /* TODO: Should we use .bundle instead of .dylib? */
 
 #ifdef CC_BUILD_DARWIN
@@ -1324,10 +1307,6 @@ static void Platform_InitPosix(void) {
 	sigaction(SIGCHLD, &sa, NULL);
 	/* So writing to closed socket doesn't raise SIGPIPE */
 	sigaction(SIGPIPE, &sa, NULL);
-
-	/* Log runtime address to ease investigating crashes */
-	cc_uintptr addr = (cc_uintptr)Process_Exit;
-	Platform_Log1("Process_Exit addr: %x", &addr);
 }
 void Platform_Free(void) { }
 
@@ -1472,10 +1451,6 @@ static cc_result GetMachineID(cc_uint32* key) {
 	return res;
 }
 #elif defined CC_BUILD_MACOS
-/* kIOMasterPortDefault is deprecated since macOS 12.0 (replaced with kIOMainPortDefault) */
-/* And since kIOMasterPortDefault is just 0/NULL anyways, just manually declare it */
-static const mach_port_t masterPortDefault = 0;
-
 /* Read kIOPlatformUUIDKey from I/O registry for the key */
 static cc_result GetMachineID(cc_uint32* key) {
 	io_registry_entry_t registry;
@@ -1483,7 +1458,7 @@ static cc_result GetMachineID(cc_uint32* key) {
 	char tmp[256] = { 0 };
 
 #ifdef kIOPlatformUUIDKey
-    registry = IORegistryEntryFromPath(masterPortDefault, "IOService:/");
+    registry = IORegistryEntryFromPath(kIOMasterPortDefault, "IOService:/");
     if (!registry) return ERR_NOT_SUPPORTED;
 
 	devID = IORegistryEntryCreateCFProperty(registry, CFSTR(kIOPlatformUUIDKey), kCFAllocatorDefault, 0);
@@ -1491,7 +1466,7 @@ static cc_result GetMachineID(cc_uint32* key) {
 		DecodeMachineID(tmp, String_Length(tmp), key);	
 	}
 #else
-    registry = IOServiceGetMatchingService(masterPortDefault,
+    registry = IOServiceGetMatchingService(kIOMasterPortDefault,
                                            IOServiceMatching("IOPlatformExpertDevice"));
 
     devID = IORegistryEntryCreateCFProperty(registry, CFSTR(kIOPlatformSerialNumberKey), kCFAllocatorDefault, 0);
@@ -1630,14 +1605,13 @@ cc_result Platform_Decrypt(const void* data, int len, cc_string* dst) {
 }
 
 cc_result Platform_GetEntropy(void* data, int len) {
-	int ret;
 	int fd = open("/dev/urandom", O_RDONLY);
 	if (fd < 0) return ERR_NOT_SUPPORTED;
 	
 	// TODO: check return code? and partial reads?
-	ret = read(fd, data, len);
+	read(fd, data, len);
 	close(fd);
-	return ret == -1 ? errno : 0;
+	return 0;
 }
 
 

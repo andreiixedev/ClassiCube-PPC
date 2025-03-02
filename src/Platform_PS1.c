@@ -160,12 +160,8 @@ cc_result File_Length(cc_file file, cc_uint32* len) {
 *--------------------------------------------------------Threading--------------------------------------------------------*
 *#########################################################################################################################*/
 void Thread_Sleep(cc_uint32 milliseconds) {
-	// Simulate sleep with a busy loop
-	cc_uint64 delay  = (cc_uint64)milliseconds * F_CPU / (8 * 1000);
-	cc_uint32 delay_ = (cc_uint32)delay;
-
-	for (cc_uint32 i = 0; i < delay_; i++) { __asm__ volatile(""); }
-	ChangeClearPAD(0);
+	// TODO sleep a bit
+	VSync(0);
 }
 
 void Thread_Run(void** handle, Thread_StartFunc func, int stackSize, const char* name) {

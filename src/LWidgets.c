@@ -1,5 +1,5 @@
 #include "LWidgets.h"
-#ifndef CC_DISABLE_LAUNCHER
+#ifndef CC_BUILD_WEB
 #include "String.h"
 #include "Gui.h"
 #include "Drawer2D.h"

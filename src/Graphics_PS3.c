@@ -710,25 +710,25 @@ void Gfx_DisableTextureOffset(void) {
 void Gfx_SetVertexFormat(VertexFormat fmt) {
 	if (fmt == gfx_format) return;
 	gfx_format = fmt;
-	gfx_stride = strideSizes[fmt];
+	gfx_stride = strideSizes[fmt];/* TODO */
 	
 	VP_SwitchActive();
 	FP_SwitchActive();
 }
 
-void Gfx_DrawVb_Lines(int verticesCount) {
+void Gfx_DrawVb_Lines(int verticesCount) {/* TODO */
 	rsxDrawVertexArray(context, GCM_TYPE_LINES, 0, verticesCount);
 }
 
-void Gfx_DrawVb_IndexedTris_Range(int verticesCount, int startVertex, DrawHints hints) {
+void Gfx_DrawVb_IndexedTris_Range(int verticesCount, int startVertex) {/* TODO */
 	rsxDrawVertexArray(context, GCM_TYPE_QUADS, startVertex, verticesCount);
 }
 
-void Gfx_DrawVb_IndexedTris(int verticesCount) {
+void Gfx_DrawVb_IndexedTris(int verticesCount) {/* TODO */
 	rsxDrawVertexArray(context, GCM_TYPE_QUADS, 0, verticesCount);
 }
 
-void Gfx_DrawIndexedTris_T2fC4b(int verticesCount, int startVertex) {
+void Gfx_DrawIndexedTris_T2fC4b(int verticesCount, int startVertex) {/* TODO */
 	rsxDrawVertexArray(context, GCM_TYPE_QUADS, startVertex, verticesCount);
 }
 #endif

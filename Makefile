@@ -222,12 +222,10 @@ release:
 
 # Some builds require more complex handling, so are moved to
 #  separate makefiles to avoid having one giant messy makefile
-32x:
-	$(MAKE) -f misc/32x/Makefile
-saturn:
-	$(MAKE) -f misc/saturn/Makefile
 dreamcast:
 	$(MAKE) -f misc/dreamcast/Makefile
+saturn:
+	$(MAKE) -f misc/saturn/Makefile
 psp:
 	$(MAKE) -f misc/psp/Makefile
 vita:
@@ -245,8 +243,6 @@ xbox360:
 	$(MAKE) -f misc/xbox360/Makefile
 n64:
 	$(MAKE) -f misc/n64/Makefile
-gba:
-	$(MAKE) -f misc/gba/Makefile
 ds:
 	$(MAKE) -f misc/ds/Makefile
 3ds:

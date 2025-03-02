@@ -77,11 +77,12 @@ cc_uint64 Stopwatch_Measure(void) {
 static void LogNocash(const char* msg, int len) {
     // Can only be up to 120 bytes total
 	char buffer[120];
-	len = min(len, 119);
+	len = min(len, 118);
 	
 	Mem_Copy(buffer, msg, len);
-	buffer[len] = '\0';
-	nocashWrite(buffer, len + 1);
+	buffer[len + 0] = '\n';
+	buffer[len + 1] = '\0';
+	nocashWrite(buffer, len + 2);
 }
 
 extern void Console_Clear(void);
@@ -193,10 +194,10 @@ cc_result Directory_Create(const cc_filepath* path) {
 
 int File_Exists(const cc_filepath* path) {
 	if (!fat_available) return false;
-	Platform_Log1("Check %c", path->buffer);
+	struct stat sb;
 	
-	int attribs = FAT_getAttr(path->buffer);
-	return attribs >= 0 && (attribs & ATTR_DIRECTORY) == 0;
+	Platform_Log1("Check %c", path->buffer);
+	return stat(path->buffer, &sb) == 0 && S_ISREG(sb.st_mode);
 }
 
 cc_result Directory_Enum(const cc_string* dirPath, void* obj, Directory_EnumCallback callback) {

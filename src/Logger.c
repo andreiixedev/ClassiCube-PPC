@@ -39,10 +39,6 @@
 	#define _GNU_SOURCE
 	#include <sys/ucontext.h>
 	#include <signal.h>
-#elif defined CC_BUILD_SOLARIS
-	#include <signal.h>
-	#include <sys/ucontext.h>
-	#include <sys/regset.h>
 #elif defined CC_BUILD_POSIX
 	#include <signal.h>
 	#include <sys/ucontext.h>
@@ -353,27 +349,18 @@ static int GetFrames(CONTEXT* ctx, cc_uintptr* addrs, int max) {
 	frame.AddrPC.Offset    = ctx->Eip;
 	frame.AddrFrame.Offset = ctx->Ebp;
 	frame.AddrStack.Offset = ctx->Esp;
+	spRegister             = ctx->Esp;
 #elif defined _M_X64
 	type = IMAGE_FILE_MACHINE_AMD64;
 	frame.AddrPC.Offset    = ctx->Rip;
-	frame.AddrFrame.Offset = ctx->Rbp;
+	frame.AddrFrame.Offset = ctx->Rsp;
 	frame.AddrStack.Offset = ctx->Rsp;
-#elif defined _M_ARM64
-	type = IMAGE_FILE_MACHINE_ARM64;
-	frame.AddrPC.Offset    = ctx->Pc;
-	frame.AddrFrame.Offset = ctx->Fp;
-	frame.AddrStack.Offset = ctx->Sp;
-#elif defined _M_ARM
-	type = IMAGE_FILE_MACHINE_ARM;
-	frame.AddrPC.Offset    = ctx->Pc;
-	frame.AddrFrame.Offset = ctx->R11;
-	frame.AddrStack.Offset = ctx->Sp;
+	spRegister             = ctx->Rsp;
 #else
 	/* Always available after XP, so use that */
 	return RtlCaptureStackBackTrace(0, max, (void**)addrs, NULL);
 #endif
-	spRegister = frame.AddrStack.Offset;
-	thread     = GetCurrentThread();
+	thread = GetCurrentThread();
 	if (!_StackWalk) return 0;
 
 	for (count = 0; count < max; count++) 
@@ -433,7 +420,7 @@ void Logger_Backtrace(cc_string* trace, void* ctx) {
 }
 #elif defined CC_BACKTRACE_BUILTIN
 /* Implemented later at end of the file */
-#elif defined CC_BUILD_POSIX && (defined __GLIBC__ || defined CC_BUILD_OPENBSD)
+#elif defined CC_BUILD_POSIX && (defined _GLIBC_ || defined CC_BUILD_OPENBSD)
 #include <execinfo.h>
 
 void Logger_Backtrace(cc_string* trace, void* ctx) {
@@ -558,13 +545,6 @@ static void PrintRegisters(cc_string* str, void* ctx) {
 #elif defined _M_X64
 	#define REG_GET(reg, ign) &r->R ## reg
 	Dump_X64()
-#elif defined _M_ARM64
-	#define REG_GNUM(num)     &r->X[num]
-	#define REG_GET_FP()      &r->Fp
-	#define REG_GET_LR()      &r->Lr
-	#define REG_GET_SP()      &r->Sp
-	#define REG_GET_PC()      &r->Pc
-	Dump_ARM64()
 #elif defined _M_ARM
 	#define REG_GNUM(num)     &r->R ## num
 	#define REG_GET_FP()      &r->R11
@@ -573,6 +553,13 @@ static void PrintRegisters(cc_string* str, void* ctx) {
 	#define REG_GET_LR()      &r->Lr
 	#define REG_GET_PC()      &r->Pc
 	Dump_ARM32()
+#elif defined _M_ARM64
+	#define REG_GNUM(num)     &r->X[num]
+	#define REG_GET_FP()      &r->Fp
+	#define REG_GET_LR()      &r->Lr
+	#define REG_GET_SP()      &r->Sp
+	#define REG_GET_PC()      &r->Pc
+	Dump_ARM64()
 #elif defined _M_PPC
 	#define REG_GNUM(num) &r->Gpr ## num
 	#define REG_GET_PC()  &r->Iar

@@ -41,13 +41,12 @@ static void Server_ResetState(void) {
 	Server.SupportsPlayerClick     = false;
 	Server.SupportsPartialMessages = false;
 	Server.SupportsFullCP437       = false;
-	Server.SupportsNotifyAction    = false;
 }
 
 void Server_RetrieveTexturePack(const cc_string* url) {
-	if (!Game_AllowServerTextures || TextureUrls_HasDenied(url)) return;
+	if (!Game_AllowServerTextures || TextureCache_HasDenied(url)) return;
 
-	if (!url->length || TextureUrls_HasAccepted(url)) {
+	if (!url->length || TextureCache_HasAccepted(url)) {
 		TexturePack_Extract(url);
 	} else {
 		TexPackOverlay_Show(url);
@@ -132,7 +131,7 @@ static void SPConnection_BeginConnect(void) {
 	Random_SeedFromCurrentTime(&rnd);
 	World_NewMap();
 
-#if defined CC_BUILD_NDS || defined CC_BUILD_PS1 || defined CC_BUILD_SATURN || defined CC_BUILD_MACCLASSIC || defined CC_BUILD_32X || defined CC_BUILD_GBA
+#if defined CC_BUILD_NDS || defined CC_BUILD_PS1 || defined CC_BUILD_SATURN || defined CC_BUILD_MACCLASSIC || defined CC_BUILD_32X
 	horSize = 16;
 	verSize = 16;
 #elif defined CC_BUILD_LOWMEM
@@ -144,7 +143,7 @@ static void SPConnection_BeginConnect(void) {
 #endif
 	World_SetDimensions(horSize, verSize, horSize);
 
-#if defined CC_BUILD_N64 || defined CC_BUILD_NDS || defined CC_BUILD_PS1 || defined CC_BUILD_SATURN || defined CC_BUILD_32X || defined CC_BUILD_GBA
+#if defined CC_BUILD_N64 || defined CC_BUILD_NDS || defined CC_BUILD_PS1 || defined CC_BUILD_SATURN || defined CC_BUILD_32X
 	Gen_Active = &FlatgrassGen;
 #else
 	Gen_Active = &NotchyGen;

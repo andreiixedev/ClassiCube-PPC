@@ -1,5 +1,5 @@
 #include "LScreens.h"
-#ifndef CC_DISABLE_LAUNCHER
+#ifndef CC_BUILD_WEB
 #include "String.h"
 #include "LWidgets.h"
 #include "LWeb.h"
@@ -182,7 +182,7 @@ static struct ChooseModeScreen {
 	struct LButton btnEnhanced, btnClassicHax, btnClassic, btnBack;
 	struct LLabel  lblHelp, lblEnhanced[2], lblClassicHax[2], lblClassic[2];
 	cc_bool firstTime;
-} ChooseModeScreen CC_BIG_VAR;
+} ChooseModeScreen;
 
 #define CHOOSEMODE_SCREEN_MAX_WIDGETS 12
 static struct LWidget* chooseMode_widgets[CHOOSEMODE_SCREEN_MAX_WIDGETS];
@@ -285,7 +285,7 @@ static struct ColoursScreen {
 	struct LLabel lblRGB[COLOURS_NUM_COLS];
 	struct LInput iptColours[COLOURS_NUM_ENTRIES];
 	struct LCheckbox cbClassic;
-} ColoursScreen CC_BIG_VAR;
+} ColoursScreen;
 
 #define COLOURSSCREEN_MAX_WIDGETS 25
 static struct LWidget* colours_widgets[COLOURSSCREEN_MAX_WIDGETS];
@@ -450,7 +450,7 @@ static struct DirectConnectScreen {
 	struct LButton btnConnect, btnBack;
 	struct LInput iptUsername, iptAddress, iptMppass;
 	struct LLabel lblStatus;
-} DirectConnectScreen CC_BIG_VAR;
+} DirectConnectScreen;
 
 #define DIRECTCONNECT_SCREEN_MAXWIDGETS 6
 static struct LWidget* directConnect_widgets[DIRECTCONNECT_SCREEN_MAXWIDGETS];
@@ -585,7 +585,7 @@ static struct MFAScreen {
 	struct LInput iptCode;
 	struct LButton btnSignIn, btnCancel;
 	struct LLabel  lblTitle;
-} MFAScreen CC_BIG_VAR;
+} MFAScreen;
 
 #define MFA_SCREEN_MAX_WIDGETS 4
 static struct LWidget* mfa_widgets[MFA_SCREEN_MAX_WIDGETS];
@@ -645,7 +645,7 @@ static struct SplitScreen {
 	LScreen_Layout
 	struct LButton btnPlayers[3], btnBack;
 	cc_bool signingIn;
-} SplitScreen CC_BIG_VAR;
+} SplitScreen;
 
 #define SPLITSCREEN_MAX_WIDGETS 4
 static struct LWidget* split_widgets[SPLITSCREEN_MAX_WIDGETS];
@@ -705,7 +705,7 @@ static struct MainScreen {
 	struct LInput iptUsername, iptPassword;
 	struct LLabel lblStatus, lblUpdate;
 	cc_bool signingIn;
-} MainScreen CC_BIG_VAR;
+} MainScreen;
 
 #define MAINSCREEN_MAX_WIDGETS 12
 static struct LWidget* main_widgets[MAINSCREEN_MAX_WIDGETS];
@@ -893,13 +893,11 @@ static void MainScreen_Activated(struct LScreen* s_) {
 	}
 #endif
 
-#ifdef CC_BUILD_NETWORKING
 	s->btnResume.OnHover   = MainScreen_ResumeHover;
 	s->btnResume.OnUnhover = MainScreen_ResumeUnhover;
 
 	if (CheckUpdateTask.Base.completed)
 		MainScreen_ApplyUpdateLabel(s);
-#endif
 }
 
 static void MainScreen_Load(struct LScreen* s_) {
@@ -996,12 +994,10 @@ static void MainScreen_Tick(struct LScreen* s_) {
 	struct MainScreen* s = (struct MainScreen*)s_;
 	LScreen_Tick(s_);
 
-#ifdef CC_BUILD_NETWORKING
 	MainScreen_TickCheckUpdates(s);
 	MainScreen_TickGetToken(s);
 	MainScreen_TickSignIn(s);
 	MainScreen_TickFetchServers(s);
-#endif
 }
 
 void MainScreen_SetActive(void) {
@@ -1014,7 +1010,7 @@ void MainScreen_SetActive(void) {
 	s->Activated     = MainScreen_Activated;
 	s->LoadState     = MainScreen_Load;
 	s->Tick          = MainScreen_Tick;
-	s->title         = "ClassiCube";
+	s->title         = "ClassiCube-PPC";
 
 #ifdef CC_BUILD_NETWORKING
 	s->onEnterWidget = (struct LWidget*)&s->btnLogin;
@@ -1034,7 +1030,7 @@ static struct CheckResourcesScreen {
 	LScreen_Layout
 	struct LLabel  lblLine1, lblLine2, lblStatus;
 	struct LButton btnYes, btnNo;
-} CheckResourcesScreen CC_BIG_VAR;
+} CheckResourcesScreen;
 
 #define CHECKRESOURCES_SCREEN_MAX_WIDGET 5
 static struct LWidget* checkResources_widgets[CHECKRESOURCES_SCREEN_MAX_WIDGET];
@@ -1128,7 +1124,7 @@ static struct FetchResourcesScreen {
 	struct LLabel  lblStatus;
 	struct LButton btnCancel;
 	struct LSlider sdrProgress;
-} FetchResourcesScreen CC_BIG_VAR;
+} FetchResourcesScreen;
 
 #define FETCHRESOURCES_SCREEN_MAX_WIDGETS 3
 static struct LWidget* fetchResources_widgets[FETCHRESOURCES_SCREEN_MAX_WIDGETS];
@@ -1227,7 +1223,7 @@ static struct ServersScreen {
 	struct LTable table;
 	struct FontDesc rowFont;
 	float tableAcc;
-} ServersScreen CC_BIG_VAR;
+} ServersScreen;
 
 static struct LWidget* servers_widgets[6];
 
@@ -1416,7 +1412,7 @@ static struct SettingsScreen {
 	struct LLabel  lblMode, lblColours;
 	struct LCheckbox cbExtra, cbEmpty, cbScale;
 	struct LLine sep;
-} SettingsScreen CC_BIG_VAR;
+} SettingsScreen;
 
 #define SETTINGS_SCREEN_MAX_WIDGETS 9
 static struct LWidget* settings_widgets[SETTINGS_SCREEN_MAX_WIDGETS];
@@ -1449,15 +1445,6 @@ static void SettingsScreen_ShowEmpty(struct LCheckbox* w) {
 	Options_SetBool(LOPT_SHOW_EMPTY, w->value);
 }
 
-static void SettingsScreen_DPIScaling(struct LCheckbox* w) {
-#if defined CC_BUILD_WIN
-	DisplayInfo.DPIScaling = w->value;
-	Options_SetBool(OPT_DPI_SCALING, w->value);
-	Window_ShowDialog("Restart required", "You must restart ClassiCube before display scaling takes effect");
-#else
-	Window_ShowDialog("Restart required", "Display scaling is currently only supported on Windows");
-#endif
-}
 
 static void SettingsScreen_AddWidgets(struct SettingsScreen* s) {
 	LLine_Add(s,   &s->sep, 380, set_sep);
@@ -1481,8 +1468,6 @@ static void SettingsScreen_AddWidgets(struct SettingsScreen* s) {
 
 	LCheckbox_Add(s, &s->cbEmpty, "Show empty servers in list", 
 				SettingsScreen_ShowEmpty,  set_cbEmpty);
-	LCheckbox_Add(s, &s->cbScale, "Use display scaling", 
-				SettingsScreen_DPIScaling, set_cbScale);
 	LButton_Add(s,   &s->btnBack, 80, 35, "Back", 
 				SwitchToMain, set_btnBack);
 }
@@ -1498,7 +1483,6 @@ static void SettingsScreen_Activated(struct LScreen* s_) {
 #endif
 
 	LCheckbox_Set(&s->cbEmpty, Launcher_ShowEmptyServers);
-	LCheckbox_Set(&s->cbScale, DisplayInfo.DPIScaling);
 }
 
 void SettingsScreen_SetActive(void) {
@@ -1523,7 +1507,7 @@ static struct ThemesScreen {
 	LScreen_Layout
 	struct LButton btnModern, btnClassic, btnNordic;
 	struct LButton btnCustom, btnBack;
-} ThemesScreen CC_BIG_VAR;
+} ThemesScreen;
 
 #define THEME_SCREEN_MAX_WIDGETS 5
 static struct LWidget* themes_widgets[THEME_SCREEN_MAX_WIDGETS];
@@ -1587,11 +1571,11 @@ void ThemesScreen_SetActive(void) {
 static struct UpdatesScreen {
 	LScreen_Layout
 	struct LLine seps[2];
-	struct LButton btnRel[2], btnDev[2], btnBack;
-	struct LLabel  lblYour, lblRel, lblDev, lblInfo, lblStatus;
+	struct LButton btnRel[2], btnBack;
+	struct LLabel  lblYour, lblRel, lblInfo, lblStatus;
 	int buildProgress, buildIndex;
 	cc_bool pendingFetch, release;
-} UpdatesScreen CC_BIG_VAR;
+} UpdatesScreen;
 
 #define UPDATESSCREEN_MAX_WIDGETS 12
 static struct LWidget* updates_widgets[UPDATESSCREEN_MAX_WIDGETS];
@@ -1601,19 +1585,15 @@ LAYOUTS upd_seps0[]   = { { ANCHOR_CENTRE,  0 }, { ANCHOR_CENTRE, -100 } };
 LAYOUTS upd_seps1[]   = { { ANCHOR_CENTRE,  0 }, { ANCHOR_CENTRE,   -5 } };
 
 LAYOUTS upd_lblRel[]    = { { ANCHOR_CENTRE, -20 }, { ANCHOR_CENTRE, -75 } };
-LAYOUTS upd_lblDev[]    = { { ANCHOR_CENTRE, -30 }, { ANCHOR_CENTRE,  20 } };
 LAYOUTS upd_lblInfo[]   = { { ANCHOR_CENTRE,   0 }, { ANCHOR_CENTRE, 105 } };
 LAYOUTS upd_lblStatus[] = { { ANCHOR_CENTRE,   0 }, { ANCHOR_CENTRE, 130 } };
 LAYOUTS upd_btnBack[]   = { { ANCHOR_CENTRE,   0 }, { ANCHOR_CENTRE, 170 } };
 
 /* Update button layouts when 1 build */
 LAYOUTS upd_btnRel0_1[] = { { ANCHOR_CENTRE,   0 }, { ANCHOR_CENTRE, -40 } };
-LAYOUTS upd_btnDev0_1[] = { { ANCHOR_CENTRE,   0 }, { ANCHOR_CENTRE,  55 } };
 /* Update button layouts when 2 builds */
 LAYOUTS upd_btnRel0_2[] = { { ANCHOR_CENTRE, -80 }, { ANCHOR_CENTRE, -40 } };
 LAYOUTS upd_btnRel1_2[] = { { ANCHOR_CENTRE,  80 }, { ANCHOR_CENTRE, -40 } };
-LAYOUTS upd_btnDev0_2[] = { { ANCHOR_CENTRE, -80 }, { ANCHOR_CENTRE,  55 } };
-LAYOUTS upd_btnDev1_2[] = { { ANCHOR_CENTRE,  80 }, { ANCHOR_CENTRE,  55 } };
 
 
 CC_NOINLINE static void UpdatesScreen_FormatTime(cc_string* str, int delta) {
@@ -1659,14 +1639,13 @@ static void UpdatesScreen_Format(struct LLabel* lbl, const char* prefix, cc_uint
 
 static void UpdatesScreen_FormatBoth(struct UpdatesScreen* s) {
 	UpdatesScreen_Format(&s->lblRel, "Latest release: ",   CheckUpdateTask.relTimestamp);
-	UpdatesScreen_Format(&s->lblDev, "Latest dev build: ", CheckUpdateTask.devTimestamp);
 }
 
 static void UpdatesScreen_UpdateHeader(struct UpdatesScreen* s, cc_string* str) {
-	const char* message = s->release ? "release " : "dev build ";
+	const char* message;
+	if ( s->release) message = "&eFetching latest release ";
 
-	String_Format2(str, "&eFetching latest %c%c", 
-					message, Updater_Info.builds[s->buildIndex].name);
+	String_Format2(str, "%c%c", message, Updater_Info.builds[s->buildIndex].name);
 }
 
 static void UpdatesScreen_DoFetch(struct UpdatesScreen* s) {
@@ -1744,8 +1723,6 @@ static void UpdatesScreen_FetchTick(struct UpdatesScreen* s) {
 
 static void UpdatesScreen_Rel_0(void* w) { UpdatesScreen_Get(true,  0); }
 static void UpdatesScreen_Rel_1(void* w) { UpdatesScreen_Get(true,  1); }
-static void UpdatesScreen_Dev_0(void* w) { UpdatesScreen_Get(false, 0); }
-static void UpdatesScreen_Dev_1(void* w) { UpdatesScreen_Get(false, 1); }
 
 static void UpdatesScreen_AddWidgets(struct UpdatesScreen* s) {
 	int builds = Updater_Info.numBuilds;
@@ -1755,7 +1732,6 @@ static void UpdatesScreen_AddWidgets(struct UpdatesScreen* s) {
 	LLabel_Add(s,  &s->lblYour, "Your build: (unknown)", upd_lblYour);
 
 	LLabel_Add(s,  &s->lblRel, "Latest release: Checking..",   upd_lblRel);
-	LLabel_Add(s,  &s->lblDev, "Latest dev build: Checking..", upd_lblDev);
 	LLabel_Add(s,  &s->lblStatus, "",              upd_lblStatus);
 	LLabel_Add(s,  &s->lblInfo, Updater_Info.info, upd_lblInfo);
 	LButton_Add(s, &s->btnBack, 80, 35, "Back", 
@@ -1764,15 +1740,11 @@ static void UpdatesScreen_AddWidgets(struct UpdatesScreen* s) {
 	if (builds >= 1) {
 		LButton_Add(s, &s->btnRel[0], 130, 35, Updater_Info.builds[0].name,
 							UpdatesScreen_Rel_0, builds == 1 ? upd_btnRel0_1 : upd_btnRel0_2);
-		LButton_Add(s, &s->btnDev[0], 130, 35, Updater_Info.builds[0].name,
-							UpdatesScreen_Dev_0, builds == 1 ? upd_btnDev0_1 : upd_btnDev0_2);
 	}
 
 	if (builds >= 2) {
 		LButton_Add(s, &s->btnRel[1], 130, 35, Updater_Info.builds[1].name, 
 					UpdatesScreen_Rel_1, upd_btnRel1_2);
-		LButton_Add(s, &s->btnDev[1], 130, 35, Updater_Info.builds[1].name, 
-					UpdatesScreen_Dev_1, upd_btnDev1_2);
 	}
 }
 
