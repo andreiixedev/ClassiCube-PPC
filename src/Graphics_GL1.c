@@ -8,6 +8,10 @@
 #include "Errors.h"
 #include "Window.h"
 
+#if defined CC_BUILD_WIN
+	#define CC_BUILD_GL11_FALLBACK
+#endif
+
 #if defined CC_BUILD_MACOS
 	#define CC_BUILD_GL11_FALLBACK
 #endif
