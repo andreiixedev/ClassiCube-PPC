@@ -676,16 +676,19 @@ void TexturePack_CheckPending(void) {
 }
 
 /* Asynchronously downloads the given texture pack */
-static void DownloadAsync(const cc_string* url) {
-	cc_string etag = String_Empty;
-	cc_string time = String_Empty;
+#include "ProxyPPC.h" /*Import for proxyPPC.h (to add proxy)*/
 
-	/* Only retrieve etag/last-modified headers if the file exists */
-	/* This inconsistency can occur if user deleted some cached files */
-	if (IsCached(url)) {
-		time = GetCachedLastModified(url);
-		etag = GetCachedETag(url);
-	}
+static void DownloadAsync(cc_string* url) {
+    cc_string etag = String_Empty;
+    cc_string time = String_Empty;
+
+    /*Proxy From ProxyPPC.h*/
+    ApplyProxyPPC(url);
+
+    if (IsCached(url)) {
+        time = GetCachedLastModified(url);
+        etag = GetCachedETag(url);
+    }
 
 	Http_TryCancel(TexturePack_ReqID);
 	TexturePack_ReqID = Http_AsyncGetDataEx(url, HTTP_FLAG_PRIORITY, &time, &etag, NULL);
