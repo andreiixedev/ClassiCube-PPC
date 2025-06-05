@@ -11,15 +11,15 @@ extern struct IGameComponent Audio_Component;
 struct AudioContext;
 
 #ifdef CC_BUILD_WEBAUDIO
-#define DEFAULT_SOUNDS_VOLUME   0
+	#define DEFAULT_SOUNDS_VOLUME   0
 #else
-#define DEFAULT_SOUNDS_VOLUME 100
+	#define DEFAULT_SOUNDS_VOLUME 100
 #endif
 
 #ifdef CC_BUILD_NOMUSIC
-#define DEFAULT_MUSIC_VOLUME   0
+	#define DEFAULT_MUSIC_VOLUME   0
 #else
-#define DEFAULT_MUSIC_VOLUME 100
+	#define DEFAULT_MUSIC_VOLUME 100
 #endif
 
 union AudioChunkMeta { void* ptr; cc_uintptr val; };
@@ -55,6 +55,7 @@ void Audio_PlayStepSound(cc_uint8 type);
 cc_bool AudioBackend_Init(void);
 void    AudioBackend_Tick(void);
 void    AudioBackend_Free(void);
+void    AudioBackend_LoadSounds();
 
 #define AUDIO_USAGE_BUFFER 0x01
 #define AUDIO_USAGE_STREAM 0x02
@@ -78,7 +79,7 @@ cc_result Audio_Play(struct AudioContext* ctx);
 /* Returns the number of buffers being played or queued */
 /* (e.g. if inUse is 0, no audio buffers are being played or queued) */
 cc_result Audio_Poll(struct AudioContext* ctx, int* inUse);
-cc_result Audio_Pause(struct AudioContext* ctx); /* Only implemented with OpenSL ES backend */
+cc_result Audio_Pause(struct AudioContext* ctx);
 
 /* Outputs more detailed information about errors with audio. */
 cc_bool Audio_DescribeError(cc_result res, cc_string* dst);
@@ -92,6 +93,31 @@ void Audio_Warn(cc_result res, const char* action);
 
 cc_result AudioPool_Play(struct AudioData* data);
 void AudioPool_Close(void);
+
+
+/*########################################################################################################################*
+*---------------------------------------------------------Sounds---------------------------------------------------------*
+*#########################################################################################################################*/
+enum SoundType {
+	SOUND_NONE,  SOUND_WOOD,  SOUND_GRAVEL, SOUND_GRASS, 
+	SOUND_STONE, SOUND_METAL, SOUND_GLASS,  SOUND_CLOTH, 
+	SOUND_SAND,  SOUND_SNOW,  SOUND_COUNT
+};
+extern const char* const Sound_Names[SOUND_COUNT];
+
+#define AUDIO_MAX_SOUNDS 10
+struct Sound {
+	int channels, sampleRate;
+	struct AudioChunk chunk;
+};
+struct SoundGroup {
+	int count;
+	struct Sound sounds[AUDIO_MAX_SOUNDS];
+};
+struct Soundboard { struct SoundGroup groups[SOUND_COUNT]; };
+
+extern struct Soundboard digBoard, stepBoard;
+void Sounds_LoadDefault(void);
 
 CC_END_HEADER
 #endif
