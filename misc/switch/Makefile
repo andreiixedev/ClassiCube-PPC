@@ -45,7 +45,7 @@ INCLUDES	:=	third_party/bearssl/inc
 #ROMFS	:=	romfs
 
 APP_TITLE 	:= ClassiCube
-APP_AUTHOR 	:= UnknownShadow200
+APP_AUTHOR 	:= ClassiCube team
 ICON        := misc/switch/icon.jpg
 
 #---------------------------------------------------------------------------------
