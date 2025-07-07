@@ -1,8 +1,7 @@
 #include "Certs.h"
-
-#ifndef CC_CRT_BACKEND
 #include "Errors.h"
 
+#ifndef CC_CRT_BACKEND
 void CertsBackend_Init(void) { }
 
 void Certs_BeginChain(struct X509CertContext* ctx) { }
@@ -57,7 +56,6 @@ void Certs_FreeChain( struct X509CertContext* ctx) {
 }
 
 #if CC_CRT_BACKEND == CC_CRT_BACKEND_OPENSSL
-#include "Errors.h"
 #include "Funcs.h"
 /* === BEGIN OPENSSL HEADERS === */
 typedef struct X509_           X509;
@@ -104,20 +102,13 @@ static cc_bool ossl_loaded;
 
 void CertsBackend_Init(void) {
 	static const struct DynamicLibSym funcs[] = {		
-		DynamicLib_ReqSym(OPENSSL_sk_new_null),
-		DynamicLib_ReqSym(OPENSSL_sk_push),
-		DynamicLib_ReqSym(OPENSSL_sk_pop_free),
-		DynamicLib_ReqSym(d2i_X509),
-		DynamicLib_ReqSym(X509_new),
-		DynamicLib_ReqSym(X509_free),
-		DynamicLib_ReqSym(X509_STORE_new),
-		DynamicLib_ReqSym(X509_STORE_set_default_paths),
-		DynamicLib_ReqSym(X509_STORE_CTX_new),
-		DynamicLib_ReqSym(X509_STORE_CTX_free),
-		DynamicLib_ReqSym(X509_STORE_CTX_get_error),
-		DynamicLib_ReqSym(X509_STORE_CTX_init),
-		DynamicLib_ReqSym(X509_verify_cert),
-		DynamicLib_ReqSym(X509_verify_cert_error_string),
+		DynamicLib_ReqSym(d2i_X509),            DynamicLib_ReqSym(OPENSSL_sk_new_null), 
+		DynamicLib_ReqSym(OPENSSL_sk_push),     DynamicLib_ReqSym(OPENSSL_sk_pop_free),
+		DynamicLib_ReqSym(X509_new),            DynamicLib_ReqSym(X509_free),
+		DynamicLib_ReqSym(X509_STORE_new),      DynamicLib_ReqSym(X509_STORE_set_default_paths),
+		DynamicLib_ReqSym(X509_STORE_CTX_new),  DynamicLib_ReqSym(X509_STORE_CTX_free),
+		DynamicLib_ReqSym(X509_STORE_CTX_init), DynamicLib_ReqSym(X509_STORE_CTX_get_error),	
+		DynamicLib_ReqSym(X509_verify_cert),    DynamicLib_ReqSym(X509_verify_cert_error_string),
 	};
 	void* lib;
 
@@ -148,7 +139,6 @@ int Certs_VerifyChain(struct X509CertContext* chain) {
 
 		_X509_STORE_set_default_paths(store);
 	}
-	if (!chain->numCerts) return ERR_INVALID_ARGUMENT;
 
 	/* End/Leaf certificate */
 	cert = ToOpenSSLCert(&chain->certs[0]);
@@ -190,7 +180,6 @@ int Certs_VerifyChain(struct X509CertContext* chain) {
 #include <Security/SecPolicySearch.h>
 #include <Security/oidsalg.h>
 #endif
-#include "Errors.h"
 
 void CertsBackend_Init(void) {
 	
@@ -248,8 +237,6 @@ int Certs_VerifyChain(struct X509CertContext* x509) {
 	if (!policy) CreateX509Policy();
 	if (!policy) return ERR_OUT_OF_MEMORY;
 	
-	if (!x509->numCerts) return ERR_NOT_SUPPORTED;
-	
 	chain = CFArrayCreateMutable(NULL, x509->numCerts, &kCFTypeArrayCallBacks);
 	if (!chain) return ERR_OUT_OF_MEMORY;
 	
@@ -267,6 +254,110 @@ int Certs_VerifyChain(struct X509CertContext* x509) {
 	
 	CFRelease(trust);
 	CFRelease(chain);
+	return res;
+}
+#elif CC_CRT_BACKEND == CC_CRT_BACKEND_ANDROID
+static jmethodID JAVA_sslCreateTrust, JAVA_sslAddCert, JAVA_sslVerifyChain;
+static int created_trust;
+
+void CertsBackend_Init(void) {
+	JNIEnv* env;
+	JavaGetCurrentEnv(env);
+	
+	JAVA_sslCreateTrust   = JavaGetSMethod(env, "sslCreateTrust", "()I");
+	JAVA_sslAddCert       = JavaGetSMethod(env, "sslAddCert",     "([B)V");
+	JAVA_sslVerifyChain   = JavaGetSMethod(env, "sslVerifyChain", "()I");
+}
+
+int Certs_VerifyChain(struct X509CertContext* x509) {
+	JNIEnv* env;
+	jvalue args[1];
+	int i;
+	JavaGetCurrentEnv(env);
+	
+	if (!created_trust) created_trust = JavaSCall_Int(env, JAVA_sslCreateTrust, NULL);
+	if (!created_trust) return ERR_NOT_SUPPORTED;
+	
+	for (i = 0; i < x509->numCerts; i++)
+	{
+		struct X509Cert* cert = &x509->certs[i];
+		args[0].l = JavaMakeBytes(env, cert->data, cert->offset);
+		JavaSCall_Void(env, JAVA_sslAddCert, args);
+		(*env)->DeleteLocalRef(env, args[0].l);
+	}
+
+	return JavaSCall_Int(env, JAVA_sslVerifyChain, NULL);
+}
+#elif CC_CRT_BACKEND == CC_CRT_BACKEND_WINCRYPTO
+#define CC_CRYPT32_FUNC extern
+#include "Funcs.h"
+
+#define WIN32_LEAN_AND_MEAN
+#define NOSERVICE
+#define NOMCX
+#define NOIME
+#ifndef UNICODE
+#define UNICODE
+#define _UNICODE
+#endif
+
+#include <windows.h>
+/* Compatibility versions so compiling works on older Windows SDKs */
+#include "../misc/windows/min-wincrypt.h" /* #include <wincrypt.h> */
+
+void CertsBackend_Init(void) {
+	Crypt32_LoadDynamicFuncs();
+}
+
+static const LPCSTR const usage[] = {
+	szOID_PKIX_KP_SERVER_AUTH,
+	szOID_SERVER_GATED_CRYPTO,
+	szOID_SGC_NETSCAPE
+};
+
+static BOOL BuildChain(struct X509CertContext* x509, HCERTSTORE store, PCCERT_CONTEXT* end_cert, PCCERT_CHAIN_CONTEXT* chain) {
+	struct X509Cert* cert = &x509->certs[0];
+	CERT_CHAIN_PARA para  = { 0 };
+	int i;
+
+	BOOL ok = _CertAddEncodedCertificateToStore(store, X509_ASN_ENCODING, cert->data, cert->offset,
+												CERT_STORE_ADD_ALWAYS, end_cert);
+	if (!ok || !(*end_cert)) return FALSE;
+
+	for (i = 1; i < x509->numCerts; i++)
+	{
+		cert = &x509->certs[i];
+		ok   = _CertAddEncodedCertificateToStore(store, X509_ASN_ENCODING, cert->data, cert->offset,
+												CERT_STORE_ADD_ALWAYS, NULL);
+
+	}
+
+	para.cbSize = sizeof(para);
+	para.RequestedUsage.dwType = USAGE_MATCH_TYPE_OR;
+	para.RequestedUsage.Usage.cUsageIdentifier     = Array_Elems(usage);
+	para.RequestedUsage.Usage.rgpszUsageIdentifier = (LPSTR*)usage;
+
+	return _CertGetCertificateChain(NULL, *end_cert, NULL, NULL, &para, 0, NULL, chain);
+}
+
+int Certs_VerifyChain(struct X509CertContext* x509) {
+	PCCERT_CHAIN_CONTEXT chain = NULL;
+	PCCERT_CONTEXT end_cert = NULL;
+	HCERTSTORE store;
+	DWORD res = 200;
+
+	if (!_CertOpenStore) return ERR_NOT_SUPPORTED;
+	store = _CertOpenStore(CERT_STORE_PROV_MEMORY, 0, NULL, 0, NULL);
+	if (!store) return ERR_NOT_SUPPORTED;
+
+	if (BuildChain(x509, store, &end_cert, &chain)) {
+		res = chain->TrustStatus.dwErrorStatus;
+		if (res) Platform_Log1("Cert validation failed: %h", &res);
+	}
+	
+	_CertFreeCertificateChain(chain);
+	_CertFreeCertificateContext(end_cert);
+	_CertCloseStore(store, 0);
 	return res;
 }
 #endif

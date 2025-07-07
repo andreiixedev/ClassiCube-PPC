@@ -481,7 +481,7 @@ static void Game_Load(void) {
 
 	if (Gfx.Limitations & GFX_LIMIT_VERTEX_ONLY_FOG)
 		EnvRenderer_SetMode(EnvRenderer_Minimal | ENV_LEGACY);
-	if (Gfx.BackendType == CC_GFX_BACKEND_SOFTGPU)
+	if (Gfx.Limitations & GFX_LIMIT_MINIMAL)
 		EnvRenderer_SetMode(ENV_MINIMAL);
 
 	Server.BeginConnect();
@@ -903,7 +903,7 @@ static void Game_RunLoop(void) {
 }
 #endif
 
-static void Game_Setup(const cc_string* title) {
+void Game_Setup(const cc_string* title) {
 	int width  = Options_GetInt(OPT_WINDOW_WIDTH,  0, DisplayInfo.Width,  0);
 	int height = Options_GetInt(OPT_WINDOW_HEIGHT, 0, DisplayInfo.Height, 0);
 
@@ -918,13 +918,12 @@ static void Game_Setup(const cc_string* title) {
 	Window_Show();
 	gameRunning = true;
 	Game.CurrentState = 0;
-}
 
-void Game_Run(const cc_string* title) {
-	Game_Setup(title);
 	Game_Load();
 	Event_RaiseVoid(&WindowEvents.Resized);
+}
 
+void Game_Run(void) {
 	frameStart = Stopwatch_Measure();
 	Game_RunLoop();
 	Window_Destroy();
