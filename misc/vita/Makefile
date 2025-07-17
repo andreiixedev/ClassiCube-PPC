@@ -4,35 +4,41 @@ $(warning   export VITASDK=/usr/local/vitasdk)
 $(error   Failed to find VitaSDK installation)
 endif
 
+.SUFFIXES:
+
 
 #---------------------------------------------------------------------------------
 # Configurable options
 #---------------------------------------------------------------------------------
 # Name of the final output
-TARGET 			:= ClassiCube-vita
+TARGET 			= ClassiCube-vita
 # List of directories containing source code
-SOURCE_DIRS		:= src src/psvita third_party/bearssl
+SOURCE_DIRS		= src src/psvita third_party/bearssl
 # Directory where object files are placed
-BUILD_DIR		:= build/vita
+BUILD_DIR		= build/vita
 
-PROJECT_TITLE 	:= ClassiCube
-PROJECT_TITLEID := CUBE00200
+PROJECT_TITLE 	= ClassiCube
+PROJECT_TITLEID = CUBE00200
+
+
+#---------------------------------------------------------------------------------
+# Compilable files
+#---------------------------------------------------------------------------------
+C_FILES = $(foreach dir,$(SOURCE_DIRS),$(wildcard $(dir)/*.c))
+OBJS 	= $(addprefix $(BUILD_DIR)/, $(notdir $(C_FILES:%.c=%.o)))
+
+# Dependency tracking
+DEPFLAGS = -MT $@ -MMD -MP -MF $(BUILD_DIR)/$*.d
+DEPFILES := $(OBJS:%.o=%.d)
 
 
 #---------------------------------------------------------------------------------
 # Code generation
 #---------------------------------------------------------------------------------
-C_FILES = $(foreach dir,$(SOURCE_DIRS),$(wildcard $(dir)/*.c))
-OBJS 	= $(addprefix $(BUILD_DIR)/, $(notdir $(C_FILES:%.c=%.o)))
-
 CFLAGS 	= -O1
 
 LDFLAGS = -Wl,-q
 LIBS 	= -lm -lSceDisplay_stub -lSceCtrl_stub -lSceTouch_stub -lSceGxm_stub -lSceCommonDialog_stub -lSceAppUtil_stub
-
-# Dependency tracking
-DEPFLAGS = -MT $@ -MMD -MP -MF $(BUILD_DIR)/$*.d
-DEPFILES := $(OBJS:%.o=%.d)
 
 
 #---------------------------------------------------------------------------------

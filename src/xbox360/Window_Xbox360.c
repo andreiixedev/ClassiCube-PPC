@@ -1,48 +1,48 @@
-#include "Core.h"
-#if defined CC_BUILD_PSP
-#include "Window.h"
-#include "Platform.h"
-#include "Input.h"
-#include "Event.h"
-#include "Graphics.h"
-#include "String.h"
-#include "Funcs.h"
-#include "Bitmap.h"
-#include "Errors.h"
-#include "ExtMath.h"
-#include "VirtualKeyboard.h"
-#include <pspdisplay.h>
-#include <pspge.h>
-#include <pspctrl.h>
-#include <pspkernel.h>
+#include "../Window.h"
+#include "../Platform.h"
+#include "../Input.h"
+#include "../Event.h"
+#include "../Graphics.h"
+#include "../String.h"
+#include "../Funcs.h"
+#include "../Bitmap.h"
+#include "../Errors.h"
+#include "../ExtMath.h"
+#include "../VirtualKeyboard.h"
 
-#define BUFFER_WIDTH  512
-#define SCREEN_WIDTH  480
-#define SCREEN_HEIGHT 272
+#include <xenos/xenos.h>
+#include <input/input.h>
+#include <usb/usbmain.h>
+#include <pci/io.h>
+
 static cc_bool launcherMode;
 
 struct _DisplayData DisplayInfo;
 struct cc_window WindowInfo;
 
-void Window_PreInit(void) {
+static uint32_t reg_read32(int reg)
+{
+	return read32n(0xec800000 + reg);
 }
 
+void Window_PreInit(void) { }
 void Window_Init(void) {
-	DisplayInfo.Width  = SCREEN_WIDTH;
-	DisplayInfo.Height = SCREEN_HEIGHT;
+	DisplayInfo.Width  = reg_read32(D1GRPH_X_END);
+	DisplayInfo.Height = reg_read32(D1GRPH_Y_END);
 	DisplayInfo.ScaleX = 1;
 	DisplayInfo.ScaleY = 1;
 	
-	Window_Main.Width    = SCREEN_WIDTH;
-	Window_Main.Height   = SCREEN_HEIGHT;
+	Window_Main.Width    = DisplayInfo.Width;
+	Window_Main.Height   = DisplayInfo.Height;
 	Window_Main.Focused  = true;
 	
 	Window_Main.Exists   = true;
 	Window_Main.UIScaleX = DEFAULT_UI_SCALE_X;
 	Window_Main.UIScaleY = DEFAULT_UI_SCALE_Y;
-	Window_Main.SoftKeyboard   = SOFT_KEYBOARD_VIRTUAL;
 
-	sceDisplaySetMode(0, SCREEN_WIDTH, SCREEN_HEIGHT);
+	Window_Main.SoftKeyboard   = SOFT_KEYBOARD_VIRTUAL;
+	//xenon_ata_init();
+	//xenon_atapi_init();
 }
 
 void Window_Free(void) { }
@@ -65,7 +65,7 @@ void Window_Show(void) { }
 void Window_SetSize(int width, int height) { }
 
 void Window_RequestClose(void) {
-	Event_RaiseVoid(&WindowEvents.Closing);
+	/* TODO implement */
 }
 
 
@@ -75,7 +75,8 @@ void Window_RequestClose(void) {
 void Window_ProcessEvents(float delta) {
 }
 
-void Cursor_SetPosition(int x, int y) { } // Makes no sense for PSP
+void Cursor_SetPosition(int x, int y) { } // Makes no sense for Xbox
+
 void Window_EnableRawMouse(void)  { Input.RawMode = true;  }
 void Window_DisableRawMouse(void) { Input.RawMode = false; }
 void Window_UpdateRawMouse(void)  { }
@@ -87,55 +88,58 @@ void Window_UpdateRawMouse(void)  { }
 void Gamepads_Init(void) {
 	Input.Sources |= INPUT_SOURCE_GAMEPAD;
 
-	sceCtrlSetSamplingCycle(0);
-	sceCtrlSetSamplingMode(PSP_CTRL_MODE_ANALOG);
+	usb_init();
+	usb_do_poll();
+}
+/*
+struct controller_data_s
+{
+	signed short s1_x, s1_y, s2_x, s2_y;
+	int s1_z, s2_z, lb, rb, start, back, a, b, x, y, up, down, left, right;
+	unsigned char lt, rt;
+	int logo;
+};
+*/
+
+static void HandleButtons(int port, struct controller_data_s* pad) {
+	Gamepad_SetButton(port, CCPAD_L,      pad->lb);
+	Gamepad_SetButton(port, CCPAD_R,      pad->rb);
+	Gamepad_SetButton(port, CCPAD_LSTICK, pad->lt > 100);
+	Gamepad_SetButton(port, CCPAD_RSTICK, pad->rt > 100);
 	
-	Input_DisplayNames[CCPAD_1] = "CIRCLE";
-	Input_DisplayNames[CCPAD_2] = "CROSS";
-	Input_DisplayNames[CCPAD_3] = "SQUARE";
-	Input_DisplayNames[CCPAD_4] = "TRIANGLE";
+	Gamepad_SetButton(port, CCPAD_1, pad->a);
+	Gamepad_SetButton(port, CCPAD_2, pad->b);
+	Gamepad_SetButton(port, CCPAD_3, pad->x);
+	Gamepad_SetButton(port, CCPAD_4, pad->y);
+	
+	Gamepad_SetButton(port, CCPAD_START,  pad->start);
+	Gamepad_SetButton(port, CCPAD_SELECT, pad->back);
+	
+	Gamepad_SetButton(port, CCPAD_LEFT,   pad->left);
+	Gamepad_SetButton(port, CCPAD_RIGHT,  pad->right);
+	Gamepad_SetButton(port, CCPAD_UP,     pad->up);
+	Gamepad_SetButton(port, CCPAD_DOWN,   pad->down);
 }
 
-static void HandleButtons(int port, int mods) {
-	Gamepad_SetButton(port, CCPAD_L, mods & PSP_CTRL_LTRIGGER);
-	Gamepad_SetButton(port, CCPAD_R, mods & PSP_CTRL_RTRIGGER);
+#define AXIS_SCALE 8192.0f
+static void HandleJoystick(int port, int axis, int x, int y, float delta) {
+	if (Math_AbsI(x) <= 4096) x = 0;
+	if (Math_AbsI(y) <= 4096) y = 0;	
 	
-	Gamepad_SetButton(port, CCPAD_1, mods & PSP_CTRL_CIRCLE);
-	Gamepad_SetButton(port, CCPAD_2, mods & PSP_CTRL_CROSS);
-	Gamepad_SetButton(port, CCPAD_3, mods & PSP_CTRL_SQUARE);
-	Gamepad_SetButton(port, CCPAD_4, mods & PSP_CTRL_TRIANGLE);
-	
-	Gamepad_SetButton(port, CCPAD_START,  mods & PSP_CTRL_START);
-	Gamepad_SetButton(port, CCPAD_SELECT, mods & PSP_CTRL_SELECT);
-	
-	Gamepad_SetButton(port, CCPAD_LEFT,   mods & PSP_CTRL_LEFT);
-	Gamepad_SetButton(port, CCPAD_RIGHT,  mods & PSP_CTRL_RIGHT);
-	Gamepad_SetButton(port, CCPAD_UP,     mods & PSP_CTRL_UP);
-	Gamepad_SetButton(port, CCPAD_DOWN,   mods & PSP_CTRL_DOWN);
-}
-
-#define AXIS_SCALE 16.0f
-static void ProcessCircleInput(int port, SceCtrlData* pad, float delta) {
-	int x = pad->Lx - 127;
-	int y = pad->Ly - 127;
-
-	if (Math_AbsI(x) <= 8) x = 0;
-	if (Math_AbsI(y) <= 8) y = 0;
-
-	Gamepad_SetAxis(port, PAD_AXIS_RIGHT, x / AXIS_SCALE, y / AXIS_SCALE, delta);
+	Gamepad_SetAxis(port, axis, x / AXIS_SCALE, -y / AXIS_SCALE, delta);
 }
 
 void Gamepads_Process(float delta) {
-	int port = Gamepad_Connect(0x503, PadBind_Defaults);
-	SceCtrlData pad;
-	
-	/* TODO implement */
-	int ret = sceCtrlPeekBufferPositive(&pad, 1);
-	if (ret <= 0) return;
-	// TODO: need to use cached version still? like GameCube/Wii
+	usb_do_poll();
+	int port = Gamepad_Connect(0xB0360, PadBind_Defaults);
 
-	HandleButtons(port, pad.Buttons);
-	ProcessCircleInput(port, &pad, delta);
+	struct controller_data_s pad;
+	int res = get_controller_data(&pad, 0);
+	if (res == 0) return;
+	
+	HandleButtons(port, &pad);
+	HandleJoystick(port, PAD_AXIS_LEFT,  pad.s1_x, pad.s1_y, delta);
+	HandleJoystick(port, PAD_AXIS_RIGHT, pad.s2_x, pad.s2_y, delta);
 }
 
 
@@ -149,19 +153,27 @@ void Window_AllocFramebuffer(struct Bitmap* bmp, int width, int height) {
 }
 
 void Window_DrawFramebuffer(Rect2D r, struct Bitmap* bmp) {
-	void* fb = sceGeEdramGetAddr();
+	// https://github.com/Free60Project/libxenon/blob/master/libxenon/drivers/console/console.c#L166
+	// https://github.com/Free60Project/libxenon/blob/master/libxenon/drivers/console/console.c#L57
+	uint32_t* fb = (uint32_t*)(reg_read32(D1GRPH_PRIMARY_SURFACE_ADDRESS) | 0x80000000);
+	/* round up size to tiles of 32x32 */
+	int width = ((DisplayInfo.Width + 31) >> 5) << 5;
 	
-	sceDisplayWaitVblankStart();
-	sceDisplaySetFrameBuf(fb, BUFFER_WIDTH, PSP_DISPLAY_PIXEL_FORMAT_8888, PSP_DISPLAY_SETBUF_NEXTFRAME);
-
-	cc_uint32* src = (cc_uint32*)bmp->scan0 + r.x;
-	cc_uint32* dst = (cc_uint32*)fb         + r.x;
+#define FB_INDEX(x, y) (((y >> 5)*32*width + ((x >> 5)<<10) + (x&3) + ((y&1)<<2) + (((x&31)>>2)<<3) + (((y&31)>>1)<<6)) ^ ((y&8)<<2))
 
 	for (int y = r.y; y < r.y + r.height; y++) 
 	{
-		Mem_Copy(dst + y * BUFFER_WIDTH, src + y * bmp->width, r.width * 4);
+		cc_uint32* src = Bitmap_GetRow(bmp, y);
+		
+		for (int x = r.x; x < r.x + r.width; x++) {
+			// TODO: Can the uint be copied directly ?
+			int R = BitmapCol_R(src[x]);
+			int G = BitmapCol_G(src[x]);
+			int B = BitmapCol_B(src[x]);
+			
+			fb[FB_INDEX(x, y)] = (B << 24) | (G << 16) | (R << 8) | 0xFF;
+		}
 	}
-	sceKernelDcacheWritebackAll();
 }
 
 void Window_FreeFramebuffer(struct Bitmap* bmp) {
@@ -173,6 +185,7 @@ void Window_FreeFramebuffer(struct Bitmap* bmp) {
 *------------------------------------------------------Soft keyboard------------------------------------------------------*
 *#########################################################################################################################*/
 void OnscreenKeyboard_Open(struct OpenKeyboardArgs* args) {
+	if (Input.Sources & INPUT_SOURCE_NORMAL) return;
 	VirtualKeyboard_Open(args, launcherMode);
 }
 
@@ -201,4 +214,3 @@ cc_result Window_OpenFileDialog(const struct OpenFileDialogArgs* args) {
 cc_result Window_SaveFileDialog(const struct SaveFileDialogArgs* args) {
 	return ERR_NOT_SUPPORTED;
 }
-#endif

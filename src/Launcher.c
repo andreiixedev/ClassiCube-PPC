@@ -274,16 +274,15 @@ void Launcher_Setup(void) {
 #endif
 }
 
-void Launcher_Run(void) {
-	for (;;) {
-		Window_ProcessEvents(10 / 1000.0f);
-		Gamepad_Tick(10 / 1000.0f);
-		if (!Window_Main.Exists || Launcher_ShouldStop) break;
+cc_bool Launcher_Tick(void) {
+	/* NOTE: Make sure to keep delay same as hardcoded delay in RunLauncher in main_impl.h */
+	Window_ProcessEvents(10 / 1000.0f);
+	Gamepad_Tick(10 / 1000.0f);
+	if (!Window_Main.Exists || Launcher_ShouldStop) return false;
 
-		Launcher_Active->Tick(Launcher_Active);
-		LBackend_Tick();
-		Thread_Sleep(10);
-	}
+	Launcher_Active->Tick(Launcher_Active);
+	LBackend_Tick();
+	return true;
 }
 
 void Launcher_Finish(void) {
@@ -311,7 +310,6 @@ void Launcher_Finish(void) {
 		cc_result res = Updater_Start(&action);
 		if (res) Logger_SysWarn(res, action);
 	}
-	Window_Destroy();
 }
 
 
@@ -482,6 +480,7 @@ static cc_result ExtractTexturePack(const cc_string* path) {
 
 void Launcher_TryLoadTexturePack(void) {
 	cc_string path; char pathBuffer[FILENAME_SIZE];
+	const char* default_path;
 	cc_string texPack;
 
 	/* TODO: Not duplicate TexturePack functionality */
@@ -492,8 +491,9 @@ void Launcher_TryLoadTexturePack(void) {
 	}
 
 	/* user selected texture pack is missing some required .png files */
-	if (!hasBitmappedFont || dirtBmp.scan0 == NULL)
-		TexturePack_ExtractDefault(ExtractTexturePack);
+	if (!hasBitmappedFont || dirtBmp.scan0 == NULL) {
+		TexturePack_ExtractDefault(ExtractTexturePack, &default_path);
+	}
 
 	LBackend_UpdateTitleFont();
 }

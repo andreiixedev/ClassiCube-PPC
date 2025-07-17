@@ -1,15 +1,15 @@
-#include "Core.h"
-#ifdef CC_BUILD_XBOX360
-#include "_GraphicsBase.h"
-#include "Errors.h"
-#include "Window.h"
+#include "../_GraphicsBase.h"
+#include "../Errors.h"
+#include "../Window.h"
+
 #include <xenos/xe.h>
 #include <xenos/edram.h>
 
-#include "../misc/xbox360/ps_coloured.h"
-#include "../misc/xbox360/vs_coloured.h"
-#include "../misc/xbox360/ps_textured.h"
-#include "../misc/xbox360/vs_textured.h"
+#include "../../misc/xbox360/ps_coloured.h"
+#include "../../misc/xbox360/vs_coloured.h"
+#include "../../misc/xbox360/ps_textured.h"
+#include "../../misc/xbox360/vs_textured.h"
+
 static struct XenosShader* shdr_tex_vs;
 static struct XenosShader* shdr_tex_ps;
 static struct XenosShader* shdr_col_vs;
@@ -96,8 +96,9 @@ static void Gfx_RestoreState(void) {
 static void SetTextureData(struct XenosSurface* xtex, int x, int y, const struct Bitmap* bmp, int rowWidth, int lvl) {
 	void* dst = Xe_Surface_LockRect(xe, xtex, x, y, bmp->width, bmp->height, XE_LOCK_WRITE);
 
-	CopyTextureData(dst, bmp->width * BITMAPCOLOR_SIZE,
-					bmp, rowWidth   * BITMAPCOLOR_SIZE);
+	CopyPixels(dst,        bmp->width * BITMAPCOLOR_SIZE,
+			   bmp->scan0, rowWidth   * BITMAPCOLOR_SIZE,
+			   bmp->width, bmp->height);
 	
 	Xe_Surface_Unlock(xe, xtex);
 }
@@ -402,4 +403,3 @@ void Gfx_OnWindowResize(void) {
 
 void Gfx_SetViewport(int x, int y, int w, int h) { }
 void Gfx_SetScissor (int x, int y, int w, int h) { }
-#endif

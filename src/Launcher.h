@@ -81,8 +81,8 @@ void Launcher_DisplayHttpError(struct HttpRequest* req, const char* action, cc_s
 
 /* Sets up state and then creates the launcher window */
 void Launcher_Setup(void);
-/* Runs the launcher main loop */
-void Launcher_Run(void);
+/* Ticks the launcher main loop */
+cc_bool Launcher_Tick(void);
 /* Cleans up state and then destroys the launcher window */
 void Launcher_Finish(void);
 
