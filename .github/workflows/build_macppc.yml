@@ -1,11 +1,8 @@
-name: Build for macOS 10.4.11 PPC
+name: Build for macOS 10.4 PPC
 
 on:
   push:
-    branches:
-      - main
-      - master
-      - AngledLighting
+    branches: [ main, master, AngledLighting ]
   workflow_dispatch:
 
 concurrency:
@@ -13,53 +10,46 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  build-ppc:
-    timeout-minutes: 20
+  build-macppc:
     runs-on: ubuntu-latest
+    timeout-minutes: 25
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-      - name: Set up PPC cross compiler (powerpc-apple-darwin)
+      - name: Install dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install -y wget tar gcc make curl
-          
-          # Download and extract prebuilt PPC macOS cross-compiler (example)
-          mkdir -p $HOME/cross
-          cd $HOME/cross
-          wget https://github.com/tpoechtrager/osxcross/releases/download/v20210410/osxcross.tar.xz
-          tar -xf osxcross.tar.xz
-          export PATH="$HOME/cross/osxcross/target/bin:$PATH"
+          sudo apt update
+          sudo apt install -y build-essential clang bison flex \
+            libssl-dev libmpc-dev libmpfr-dev libgmp-dev cmake curl xz-utils
 
-      - name: Build for macOS PPC
+      - name: Clone osxcross
+        run: |
+          git clone https://github.com/tpoechtrager/osxcross.git
+          cp .github/workflows/MacOSX10.4u.sdk.tar.xz osxcross/tarballs/
+
+      - name: Build osxcross (PPC toolchain)
+        run: |
+          cd osxcross
+          UNATTENDED=yes OSX_VERSION_MIN=10.4 TARGET=powerpc-apple-darwin10 ./build.sh
+
+      - name: Compile for macOS 10.4 PPC
         env:
-          LIBS: "-framework Cocoa -framework OpenGL"
-          SRCS: "src/*.c src/Window_cocoa.m third_party/bearssl/*.c"
-          FLAGS: "-O1 -no-pie -mmacosx-version-min=10.4 -arch ppc"
+          PATH: ${{ github.workspace }}/osxcross/target/bin:${{ env.PATH }}
         run: |
-          export PATH="$HOME/cross/osxcross/target/bin:$PATH"
           export CC=powerpc-apple-darwin10-gcc
-          
+          export CFLAGS="-mmacosx-version-min=10.4 -arch ppc -O2"
           COMMIT_SHA=$(git rev-parse --short "$GITHUB_SHA")
-          PPC_OUT="cc-macppc"
-          
-          $CC $FLAGS $SRCS -DCC_COMMIT_SHA="\"$COMMIT_SHA\"" -o $PPC_OUT $LIBS
 
-      - uses: ./.github/actions/upload_build
-        if: success()
-        with:
-          SOURCE_FILE: 'cc-macppc'
-          DEST_NAME: 'ClassiCube-macOS10.4-PPC'
+          mkdir -p build
+          $CC $CFLAGS -DCC_COMMIT_SHA="\"$COMMIT_SHA\"" \
+            -framework Cocoa -framework OpenGL \
+            src/*.c src/Window_cocoa.m third_party/bearssl/*.c \
+            -o build/cc-macppc
 
-      - uses: ./.github/actions/notify_success
-        if: success()
+      - name: Upload PPC build
+        uses: actions/upload-artifact@v4
         with:
-          DESTINATION_URL: '${{ secrets.NOTIFY_URL }}'
-          WORKFLOW_NAME: 'macOS10.4-PPC'
-
-      - uses: ./.github/actions/notify_failure
-        if: failure()
-        with:
-          NOTIFY_MESSAGE: 'Failed to compile macOS 10.4 PPC build'
-          WEBHOOK_URL: '${{ secrets.WEBHOOK_URL }}'
+          name: ClassiCube-macOS10.4-PPC
+          path: build/cc-macppc
