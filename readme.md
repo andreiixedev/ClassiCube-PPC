@@ -1,5 +1,5 @@
 <div align="center">
-<img src="https://andreiixe.website/Pictures/logos/ClassiCube-PPC.png" width="320">
+<img src="https://andreiixe.website/files/images/logos/cc.png" width="320">
  <br>ClassiCube-PPC is a fork of <a href="https://github.com/ClassiCube/ClassiCube">ClassiCube</a> for PowerMacs with Mac OS X 10.4+<br>
  **It is not affiliated with (or supported by) Mojang AB, Minecraft, or Microsoft in any way.**
 </div>
