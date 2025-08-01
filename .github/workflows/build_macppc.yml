@@ -26,7 +26,7 @@ jobs:
 
       - name: Clone osxcross
         run: |
-          git clone https://github.com/tpoechtrager/osxcross.git
+          git clone --branch osxcross-1.1 https://github.com/tpoechtrager/osxcross.git
           cp .github/workflows/MacOSX10.4u.sdk.tar.xz osxcross/tarballs/
 
       - name: Build osxcross (PPC toolchain)
