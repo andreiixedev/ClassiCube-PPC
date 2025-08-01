@@ -24,7 +24,7 @@ jobs:
           sudo apt install -y build-essential clang bison flex \
             libssl-dev libmpc-dev libmpfr-dev libgmp-dev cmake curl xz-utils
 
-      - name: Clone osxcross
+      - name: Clone osxcross (with legacy SDK support)
         run: |
           git clone --branch osxcross-1.1 https://github.com/tpoechtrager/osxcross.git
           cp .github/workflows/MacOSX10.4u.sdk.tar.xz osxcross/tarballs/
@@ -35,9 +35,8 @@ jobs:
           UNATTENDED=yes OSX_VERSION_MIN=10.4 TARGET=powerpc-apple-darwin10 ./build.sh
 
       - name: Compile for macOS 10.4 PPC
-        env:
-          PATH: ${{ github.workspace }}/osxcross/target/bin:${{ env.PATH }}
         run: |
+          export PATH="${GITHUB_WORKSPACE}/osxcross/target/bin:$PATH"
           export CC=powerpc-apple-darwin10-gcc
           export CFLAGS="-mmacosx-version-min=10.4 -arch ppc -O2"
           COMMIT_SHA=$(git rev-parse --short "$GITHUB_SHA")
