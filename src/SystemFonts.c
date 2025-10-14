@@ -248,7 +248,7 @@ void FallbackFont_DrawText(struct DrawTextArgs* args, struct Bitmap* bmp, int x,
 	}
 }
 
-static void Fallback_PlotCell(int x, int scale, const cc_uint8* rows, FallbackFont_Plotter plotter, void* ctx) {
+static void Fallback_PlotCell(int scale, const cc_uint8* rows, FallbackFont_Plotter plotter, void* ctx) {
 	int xx, srcX, dstX;
 	int yy, srcY, dstY;
 	cc_uint8 src_row;
@@ -260,8 +260,8 @@ static void Fallback_PlotCell(int x, int scale, const cc_uint8* rows, FallbackFo
 		for (srcX = 0; srcX < CELL_SIZE; srcX++)
 		{
 			if (!(src_row & (1 << srcX))) continue;			
-			dstX = x + srcX * scale;
-			dstY = 0 + srcY * scale;
+			dstX = srcX * scale;
+			dstY = srcY * scale;
 
 			for (yy = 0; yy < scale; yy++)
 				for (xx = 0; xx < scale; xx++)
@@ -272,20 +272,14 @@ static void Fallback_PlotCell(int x, int scale, const cc_uint8* rows, FallbackFo
 	}
 }
 
-void FallbackFont_Plot(cc_string* str, FallbackFont_Plotter plotter, int scale, void* ctx) {
+int FallbackFont_Plot(cc_uint8 c, FallbackFont_Plotter plotter, int scale, void* ctx) {
 	const cc_uint8* rows;
-	int i, x = 0;
 
-	for (i = 0; i < str->length; i++) 
-	{
-		cc_uint8 c = str->buffer[i];
-		if (c == ' ') { x += SPACE_WIDTH * scale; continue; }
+	if (c == ' ') return SPACE_WIDTH * scale;
+	rows = FallbackFont_GetRows(c);
 
-		rows = FallbackFont_GetRows(c);
-
-		Fallback_PlotCell(x, scale, rows, plotter, ctx);
-		x += Fallback_CellWidth(rows) * scale;
-	}
+	Fallback_PlotCell(scale, rows, plotter, ctx);
+	return Fallback_CellWidth(rows) * scale;
 }
 
 
@@ -409,7 +403,6 @@ void cc_qsort(void* v, size_t count, size_t size,
 	if (!count) return;
 	_qsort(v, size, 0, count - 1, comp);
 }
-
 
 
 static FT_Library ft_lib;
@@ -536,6 +529,16 @@ static cc_string font_candidates[] = {
 	String_FromConst("Roboto"), /* Android (broken on some Android 10 devices) */
 	String_FromConst("Geneva"), /* for ancient macOS versions */
 	String_FromConst("Droid Sans"), /* for old Android versions */
+#if defined CC_BUILD_SYMBIAN
+	String_FromConst("Nokia Sans TitleSmBd S60"),
+	String_FromConst("Nokia Sans S60"),
+	String_FromConst("Nokia Hindi S60"),
+	String_FromConst("Series 60 Sans TitleSmBd"),
+	String_FromConst("Series 60 Sans"),
+	String_FromConst("Series 60 Hindi"),
+	String_FromConst("Series 60 Korean"),
+	String_FromConst("Heisei Kaku Gothic S60"),
+#endif
 	String_FromConst("Google Sans") /* Droid Sans is now known as Google Sans on some Android devices (e.g. a Pixel 6) */
 };
 

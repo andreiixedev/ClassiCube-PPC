@@ -23,7 +23,7 @@ static int db_stride;
 static void* gfx_vertices;
 static GfxResourceID white_square;
 
-void Gfx_RestoreState(void) {
+static void Gfx_RestoreState(void) {
 	InitDefaultResources();
 
 	// 1x1 dummy white texture
@@ -33,22 +33,17 @@ void Gfx_RestoreState(void) {
 	white_square = Gfx_CreateTexture(&bmp, 0, false);
 }
 
-void Gfx_FreeState(void) {
+static void Gfx_FreeState(void) {
 	FreeDefaultResources();
 	Gfx_DeleteTexture(&white_square);
 }
 
 void Gfx_Create(void) {
-#if defined CC_BUILD_32X || defined CC_BUILD_GBA
-	Gfx.MaxTexWidth  = 16;
-	Gfx.MaxTexHeight = 16;
-#else
 	Gfx.MaxTexWidth  = 4096;
 	Gfx.MaxTexHeight = 4096;
-#endif
-
 	Gfx.Created      = true;
 	Gfx.BackendType  = CC_GFX_BACKEND_SOFTGPU;
+	Gfx.Limitations  = GFX_LIMIT_MINIMAL;
 	
 	Gfx_RestoreState();
 }
@@ -87,7 +82,11 @@ void Gfx_BindTexture(GfxResourceID texId) {
 
 	texWidthMask   = (1 << Math_ilog2(tex->width))  - 1;
 	texHeightMask  = (1 << Math_ilog2(tex->height)) - 1;
-	texSinglePixel = curTexWidth == 1 && curTexHeight == 1;
+
+	/* Technically the optimisation should only apply if width and height is 1 */
+	/* But it's worth sacrificing this, so that rendering the world when */
+	/*   no texture pack can use the more optimised rendering path */
+	texSinglePixel = curTexWidth == 1;
 }
 		
 void Gfx_DeleteTexture(GfxResourceID* texId) {
@@ -101,8 +100,10 @@ GfxResourceID Gfx_AllocTexture(struct Bitmap* bmp, int rowWidth, cc_uint8 flags,
 
 	tex->width  = bmp->width;
 	tex->height = bmp->height;
-	CopyTextureData(tex->pixels, bmp->width * BITMAPCOLOR_SIZE,
-					bmp, rowWidth * BITMAPCOLOR_SIZE);
+
+	CopyPixels(tex->pixels, bmp->width * BITMAPCOLOR_SIZE,
+			   bmp->scan0,  rowWidth * BITMAPCOLOR_SIZE,
+			   bmp->width,  bmp->height);
 	return tex;
 }
 
@@ -110,8 +111,9 @@ void Gfx_UpdateTexture(GfxResourceID texId, int x, int y, struct Bitmap* part, i
 	CCTexture* tex = (CCTexture*)texId;
 	BitmapCol* dst = (tex->pixels + x) + y * tex->width;
 
-	CopyTextureData(dst, tex->width * BITMAPCOLOR_SIZE,
-					part, rowWidth  * BITMAPCOLOR_SIZE);
+	CopyPixels(dst,         tex->width * BITMAPCOLOR_SIZE,
+			   part->scan0, rowWidth   * BITMAPCOLOR_SIZE,
+			   part->width, part->height);
 }
 
 void Gfx_EnableMipmaps(void)  { }
@@ -158,10 +160,8 @@ static void ClearColorBuffer(void) {
 }
 
 static void ClearDepthBuffer(void) {
-#ifndef SOFTGPU_DISABLE_ZBUFFER
 	int i, size = fb_width * fb_height;
 	for (i = 0; i < size; i++) depthBuffer[i] = 100000000.0f;
-#endif
 }
 
 void Gfx_ClearBuffers(GfxBuffers buffers) {
@@ -410,10 +410,11 @@ static void DrawSprite2D(Vertex* V0, Vertex* V1, Vertex* V2) {
 	minX = max(minX, 0); maxX = min(maxX, fb_maxX);
 	minY = max(minY, 0); maxY = min(maxY, fb_maxY);
 
-	for (int y = minY; y <= maxY; y++) 
+	int x, y;
+	for (y = minY; y <= maxY; y++) 
 	{
 		int texY = fast ? (begTY + (y - minY)) : (((begTY + delTY * (y - minY) / height)) & texHeightMask);
-		for (int x = minX; x <= maxX; x++) 
+		for (x = minX; x <= maxX; x++) 
 		{
 			int texX = fast ? (begTX + (x - minX)) : (((begTX + delTX * (x - minX) / width)) & texWidthMask);
 			int texIndex = texY * curTexWidth + texX;
@@ -468,7 +469,6 @@ static void DrawTriangle2D(Vertex* V0, Vertex* V1, Vertex* V2) {
 	int maxX = max(x0, max(x1, x2));
 	int maxY = max(y0, max(y1, y2));
 
-	int area = edgeFunction(x0,y0, x1,y1, x2,y2);
 	// Reject triangles completely outside
 	if (maxX < 0 || minX > fb_maxX) return;
 	if (maxY < 0 || minY > fb_maxY) return;
@@ -476,11 +476,14 @@ static void DrawTriangle2D(Vertex* V0, Vertex* V1, Vertex* V2) {
 	// Perform scissoring
 	minX = max(minX, 0); maxX = min(maxX, fb_maxX);
 	minY = max(minY, 0); maxY = min(maxY, fb_maxY);
-	float factor = 1.0f / area;
 
 	float u0 = V0->u * curTexWidth,  u1 = V1->u * curTexWidth,  u2 = V2->u * curTexWidth;
 	float v0 = V0->v * curTexHeight, v1 = V1->v * curTexHeight, v2 = V2->v * curTexHeight;
 	PackedCol color = V0->c;
+
+	int area = edgeFunction(x0,y0, x1,y1, x2,y2);
+	float factor = 1.0f / area;
+	int x, y;
 	
 	// https://fgiesen.wordpress.com/2013/02/10/optimizing-the-basic-rasterizer/
 	// Essentially these are the deltas of edge functions between X/Y and X/Y + 1 (i.e. one X/Y step)
@@ -492,13 +495,13 @@ static void DrawTriangle2D(Vertex* V0, Vertex* V1, Vertex* V2) {
 	float bc1_start = edgeFunction(x2,y2, x0,y0, minX+0.5f,minY+0.5f);
 	float bc2_start = edgeFunction(x0,y0, x1,y1, minX+0.5f,minY+0.5f);
 
-	for (int y = minY; y <= maxY; y++, bc0_start += dy12, bc1_start += dy20, bc2_start += dy01) 
+	for (y = minY; y <= maxY; y++, bc0_start += dy12, bc1_start += dy20, bc2_start += dy01) 
 	{
 		float bc0 = bc0_start;
 		float bc1 = bc1_start;
 		float bc2 = bc2_start;
 
-		for (int x = minX; x <= maxX; x++, bc0 += dx12, bc1 += dx20, bc2 += dx01) 
+		for (x = minX; x <= maxX; x++, bc0 += dx12, bc1 += dx20, bc2 += dx01) 
 		{
 			float ic0 = bc0 * factor;
 			float ic1 = bc1 * factor;
@@ -600,9 +603,10 @@ static void DrawTriangle3D(Vertex* V0, Vertex* V1, Vertex* V2) {
 	}
 
 	float z0 = V0->z, z1 = V1->z, z2 = V2->z;
-	float u0 = V0->u, u1 = V1->u, u2 = V2->u;
-	float v0 = V0->v, v1 = V1->v, v2 = V2->v;
 	PackedCol color = V0->c;
+
+	float u0 = V0->u * curTexWidth,  u1 = V1->u * curTexWidth,  u2 = V2->u * curTexWidth;
+	float v0 = V0->v * curTexHeight, v1 = V1->v * curTexHeight, v2 = V2->v * curTexHeight;
 	
 	// https://fgiesen.wordpress.com/2013/02/10/optimizing-the-basic-rasterizer/
 	// Essentially these are the deltas of edge functions between X/Y and X/Y + 1 (i.e. one X/Y step)
@@ -614,7 +618,7 @@ static void DrawTriangle3D(Vertex* V0, Vertex* V1, Vertex* V2) {
 	float bc1_start = edgeFunction(x2,y2, x0,y0, minX+0.5f,minY+0.5f);
 	float bc2_start = edgeFunction(x0,y0, x1,y1, minX+0.5f,minY+0.5f);
 
-	int R, G, B, A;
+	int R, G, B, A, x, y;
 	int a1, r1, g1, b1;
 	int a2, r2, g2, b2;
 	cc_bool texturing = gfx_format == VERTEX_FORMAT_TEXTURED;
@@ -626,17 +630,22 @@ static void DrawTriangle3D(Vertex* V0, Vertex* V1, Vertex* V2) {
 		A = PackedCol_A(color);
 	} else if (texSinglePixel) {
 		/* Don't need to calculate complicated texturing in this case */
-		MultiplyColors(color, curTexPixels[0]);
+		float rawY0 = v0 / w0;
+		float rawY1 = v1 / w1;
+
+		float rawY = min(rawY0, rawY1);
+		int texY   = (int)(rawY + 0.01f) & texHeightMask;
+		MultiplyColors(color, curTexPixels[texY * curTexWidth]);
 		texturing = false;
 	}
 
-	for (int y = minY; y <= maxY; y++, bc0_start += dy12, bc1_start += dy20, bc2_start += dy01) 
+	for (y = minY; y <= maxY; y++, bc0_start += dy12, bc1_start += dy20, bc2_start += dy01) 
 	{
 		float bc0 = bc0_start;
 		float bc1 = bc1_start;
 		float bc2 = bc2_start;
 
-		for (int x = minX; x <= maxX; x++, bc0 += dx12, bc1 += dx20, bc2 += dx01) 
+		for (x = minX; x <= maxX; x++, bc0 += dx12, bc1 += dx20, bc2 += dx01) 
 		{
 			float ic0 = bc0 * factor;
 			float ic1 = bc1 * factor;
@@ -647,21 +656,17 @@ static void DrawTriangle3D(Vertex* V0, Vertex* V1, Vertex* V2) {
 			float w = 1 / (ic0 * w0 + ic1 * w1 + ic2 * w2);
 			float z = (ic0 * z0 + ic1 * z1 + ic2 * z2) * w;
 
-#ifndef SOFTGPU_DISABLE_ZBUFFER
 			if (depthTest && (z < 0 || z > depthBuffer[db_index])) continue;
 			if (!colWrite) {
 				if (depthWrite) depthBuffer[db_index] = z;
 				continue;
 			}
-#else
-			if (!colWrite) continue;
-#endif
 
 			if (texturing) {
 				float u = (ic0 * u0 + ic1 * u1 + ic2 * u2) * w;
 				float v = (ic0 * v0 + ic1 * v1 + ic2 * v2) * w;
-				int texX = ((int)(Math_AbsF(u - FastFloor(u)) * curTexWidth )) & texWidthMask;
-				int texY = ((int)(Math_AbsF(v - FastFloor(v)) * curTexHeight)) & texHeightMask;
+				int texX = ((int)u) & texWidthMask;
+				int texY = ((int)v) & texHeightMask;
 
 				int texIndex = texY * curTexWidth + texX;
 				BitmapCol tColor = curTexPixels[texIndex];
@@ -670,9 +675,7 @@ static void DrawTriangle3D(Vertex* V0, Vertex* V1, Vertex* V2) {
 			}
 
 			if (gfx_alphaTest && A < 0x80) continue;
-#ifndef SOFTGPU_DISABLE_ZBUFFER
 			if (depthWrite) depthBuffer[db_index] = z;
-#endif
 			int cb_index = y * cb_stride + x;
 			
 			if (!gfx_alphaBlend) {
@@ -958,11 +961,11 @@ static void DrawClipped(int mask, Vertex* v0, Vertex* v1, Vertex* v2, Vertex* v3
 
 void DrawQuads(int startVertex, int verticesCount, DrawHints hints) {
 	Vertex vertices[4];
-	int j = startVertex;
+	int i, j = startVertex;
 
-	if (gfx_rendering2D && hints == DRAW_HINT_SPRITE) {
+	if (gfx_rendering2D && (hints & (DRAW_HINT_SPRITE|DRAW_HINT_RECT))) {
 		// 4 vertices = 1 quad = 2 triangles
-		for (int i = 0; i < verticesCount / 4; i++, j += 4)
+		for (i = 0; i < verticesCount / 4; i++, j += 4)
 		{
 			TransformVertex2D(j + 0, &vertices[0]);
 			TransformVertex2D(j + 1, &vertices[1]);
@@ -972,7 +975,7 @@ void DrawQuads(int startVertex, int verticesCount, DrawHints hints) {
 		}
 	} else if (gfx_rendering2D) {
 		// 4 vertices = 1 quad = 2 triangles
-		for (int i = 0; i < verticesCount / 4; i++, j += 4)
+		for (i = 0; i < verticesCount / 4; i++, j += 4)
 		{
 			TransformVertex2D(j + 0, &vertices[0]);
 			TransformVertex2D(j + 1, &vertices[1]);
@@ -984,7 +987,7 @@ void DrawQuads(int startVertex, int verticesCount, DrawHints hints) {
 		}
 	} else {
 		// 4 vertices = 1 quad = 2 triangles
-		for (int i = 0; i < verticesCount / 4; i++, j += 4)
+		for (i = 0; i < verticesCount / 4; i++, j += 4)
 		{
 			int clip = TransformVertex3D(j + 0, &vertices[0]) << 0
 					|  TransformVertex3D(j + 1, &vertices[1]) << 1
@@ -1067,10 +1070,8 @@ void Gfx_OnWindowResize(void) {
 	colorBuffer = fb_bmp.scan0;
 	cb_stride   = fb_bmp.width;
 
-#ifndef SOFTGPU_DISABLE_ZBUFFER
 	depthBuffer = Mem_Alloc(fb_width * fb_height, 4, "depth buffer");
 	db_stride   = fb_width;
-#endif
 
 	Gfx_SetViewport(0, 0, Game.Width, Game.Height);
 	Gfx_SetScissor (0, 0, Game.Width, Game.Height);

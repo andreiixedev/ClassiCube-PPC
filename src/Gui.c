@@ -25,6 +25,7 @@ static cc_uint8 priorities[GUI_MAX_SCREENS];
 #ifdef CC_BUILD_DUALSCREEN
 static struct Texture touchBgTex;
 #endif
+static GfxResourceID bars_VB;
 
 /*########################################################################################################################*
 *----------------------------------------------------------Gui------------------------------------------------------------*
@@ -124,7 +125,11 @@ static void LoadOptions(void) {
 	Gui.ShowFPS          = Options_GetBool(OPT_SHOW_FPS, true);
 	
 	Gui.RawInventoryScale = Options_GetFloat(OPT_INVENTORY_SCALE, 0.25f, 5.0f, 1.0f);
+#if defined CC_BUILD_SYMBIAN_3 || defined CC_BUILD_SYMBIAN_S60V5
+	Gui.RawHotbarScale    = Options_GetFloat(OPT_HOTBAR_SCALE,    0.25f, 5.0f, 2.0f);
+#else
 	Gui.RawHotbarScale    = Options_GetFloat(OPT_HOTBAR_SCALE,    0.25f, 5.0f, 1.0f);
+#endif
 	Gui.RawChatScale      = Options_GetFloat(OPT_CHAT_SCALE,      0.25f, 5.0f, 1.0f);
 	Gui.RawCrosshairScale = Options_GetFloat(OPT_CROSSHAIR_SCALE, 0.25f, 5.0f, 1.0f);
 	Gui.RawTouchScale     = Options_GetFloat(OPT_TOUCH_SCALE,     0.25f, 5.0f, 1.0f);
@@ -303,31 +308,48 @@ void Gui_UpdateInputGrab(void) {
 }
 
 void Gui_ShowPauseMenu(void) {
+#ifndef CC_DISABLE_UI
 	if (Gui.ClassicMenu) {
 		ClassicPauseScreen_Show();
 	} else {
 		PauseScreen_Show();
 	}
+#endif
 }
 
-void Gui_ShowCinematicBars() {
-	int screenWidth = Window_Main.Width;
+#define BARS_VB_COUNT 4 * 2
+static void ShowCinematicBars() {
+	struct VertexColoured* v;
+	int screenWidth  = Window_Main.Width;
 	int screenHeight = Window_Main.Height;
+	PackedCol color;
+	int count;
 
 	// Ensure bar size is clamped between 0 and 1
 	if (Gui.BarSize < 0.0f) Gui.BarSize = 0.0f;
 	if (Gui.BarSize > 1.0f) Gui.BarSize = 1.0f;
 
+	if (!bars_VB) bars_VB = Gfx_CreateDynamicVb(VERTEX_FORMAT_COLOURED, BARS_VB_COUNT);
+	if (!bars_VB) return;
+
+	count = Gui.BarSize == 1.0f ? 4 : BARS_VB_COUNT;
+	color = Gui.CinematicBarColor;
+	v = (struct VertexColoured*)Gfx_LockDynamicVb(bars_VB, VERTEX_FORMAT_COLOURED, count);
+
 	// If bar size is 1, just draw 1 rectangle instead of 2
 	if (Gui.BarSize == 1.0f) {
-		Gfx_Draw2DGradient(0, 0, screenWidth, screenHeight, Gui.CinematicBarColor, Gui.CinematicBarColor);
+		v = Gfx_Build2DGradient(0, 0, screenWidth, screenHeight, color, color, v);
 	} else {
 		// Calculate the height of each bar based on the bar size
 		int barHeight = (int)(screenHeight * Gui.BarSize / 2.0f);
 
-		Gfx_Draw2DGradient(0, 0, screenWidth, barHeight, Gui.CinematicBarColor, Gui.CinematicBarColor);
-		Gfx_Draw2DGradient(0, screenHeight - barHeight, screenWidth, barHeight, Gui.CinematicBarColor, Gui.CinematicBarColor);
+		v = Gfx_Build2DGradient(0,                        0, screenWidth, barHeight, color, color, v);
+		v = Gfx_Build2DGradient(0, screenHeight - barHeight, screenWidth, barHeight, color, color, v);
 	}
+
+	Gfx_UnlockDynamicVb(bars_VB);
+	Gfx_SetVertexFormat(VERTEX_FORMAT_COLOURED);
+	Gfx_DrawVb_IndexedTris(count);
 }
 
 void Gui_RenderGui(float delta) {
@@ -339,7 +361,7 @@ void Gui_RenderGui(float delta) {
 	Texture_Render(&touchBgTex);
 #endif
 
-	if (Gui.BarSize > 0) Gui_ShowCinematicBars();
+	if (Gui.BarSize > 0) ShowCinematicBars();
 
 	/* Draw back to front so highest priority screen is on top */
 	for (i = Gui.ScreensCount - 1; i >= 0; i--) 
@@ -395,7 +417,7 @@ void TextAtlas_Make(struct TextAtlas* atlas, const cc_string* chars, struct Font
 	}	
 	Context2D_Free(&ctx);
 
-	atlas->uScale = 1.0f / (float)ctx.bmp.width;
+	atlas->uScale = Context2D_CalcUV(1, ctx.bmp.width);
 	atlas->tex.uv.u2 = atlas->offset * atlas->uScale;
 	atlas->tex.width = atlas->offset;	
 }
@@ -624,7 +646,7 @@ static void OnPointerMove(void* obj, int idx) {
 	}
 }
 
-static void OnAxisUpdate(void* obj, int port, int axis, float x, float y) {
+static void OnAxisUpdate(void* obj, struct PadAxisUpdate* upd) {
 	struct Screen* s;
 	int i;
 	
@@ -633,7 +655,7 @@ static void OnAxisUpdate(void* obj, int port, int axis, float x, float y) {
 		if (!s->VTABLE->HandlesPadAxis) continue;
 
 		s->dirty = true;
-		if (s->VTABLE->HandlesPadAxis(s, axis, x, y)) return;
+		if (s->VTABLE->HandlesPadAxis(s, upd)) return;
 	}
 }
 
@@ -660,7 +682,9 @@ static void IconsPngProcess(struct Stream* stream, const cc_string* name) {
 static struct TextureEntry icons_entry = { "icons.png", IconsPngProcess };
 
 static void TouchPngProcess(struct Stream* stream, const cc_string* name) {
-	Game_UpdateTexture(&Gui.TouchTex, stream, name, NULL, NULL);
+	if (!Gui.TouchUI) return;
+
+	Game_UpdateTexture(&Gui.TouchTex, stream, name, NULL, NULL);	
 }
 static struct TextureEntry touch_entry = { "touch.png", TouchPngProcess };
 
@@ -692,6 +716,7 @@ static void OnTextChanged(void* obj, const cc_string* str) {
 
 static void OnContextLost(void* obj) {
 	LoseAllScreens();
+	Gfx_DeleteDynamicVb(&bars_VB);
 	if (Gfx.ManagedTextures) return;
 
 	Gfx_DeleteTexture(&Gui.GuiTex);

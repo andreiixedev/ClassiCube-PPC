@@ -1,137 +1,68 @@
 #include "Core.h"
-#ifndef CC_BUILD_WEB
+
+#if defined CC_BUILD_WEB
+/* Implemented in web http backend without C worker thread(s) */
+
+#elif !defined CC_BUILD_NETWORKING
+#include "Http.h"
+#include "Game.h"
+
+void HttpRequest_Free(struct HttpRequest* request) { }
+
+cc_bool Http_GetResult(int reqID, struct HttpRequest* item) {
+	return false;
+}
+
+cc_bool Http_GetCurrent(int* reqID, int* progress) {
+	return false;
+}
+
+int Http_AsyncGetSkin(const cc_string* skinName, cc_uint8 flags) {
+	return -1;
+}
+
+int Http_AsyncGetData(const cc_string* url, cc_uint8 flags) {
+	return -1;
+}
+
+int Http_AsyncGetHeaders(const cc_string* url, cc_uint8 flags) {
+	return -1;
+}
+
+int Http_AsyncPostData(const cc_string* url, cc_uint8 flags, const void* data, cc_uint32 size, struct StringsBuffer* cookies) {
+	return -1;
+}
+
+int Http_AsyncGetDataEx(const cc_string* url, cc_uint8 flags, const cc_string* lastModified, const cc_string* etag, struct StringsBuffer* cookies) {
+	return -1;
+}
+
+int Http_CheckProgress(int reqID) { return -1; }
+
+void Http_LogError(const char* action, const struct HttpRequest* item) { }
+
+void Http_TryCancel(int reqID) { }
+
+void Http_UrlEncodeUtf8(cc_string* dst, const cc_string* src) { }
+
+void Http_ClearPending(void) { }
+
+static void Http_NullInit(void) { }
+
+struct IGameComponent Http_Component = {
+	Http_NullInit
+};
+
+#else /* CC_BUILD_NETWORKING is defined, so we can use networking */
+
 #include "_HttpBase.h"
 
-/* Ensures data buffer has enough space left to append amount bytes */
-static cc_bool Http_BufferExpand(struct HttpRequest* req, cc_uint32 amount) {
-	cc_uint32 newSize = req->size + amount;
-	cc_uint8* ptr;
-	if (newSize <= req->_capacity) return true;
-
-	if (!req->_capacity) {
-		/* Allocate initial storage */
-		req->_capacity = req->contentLength ? req->contentLength : 1;
-		req->_capacity = max(req->_capacity, newSize);
-
-		ptr = (cc_uint8*)Mem_TryAlloc(req->_capacity, 1);
-	} else {
-		/* Reallocate if capacity reached */
-		req->_capacity = newSize;
-		ptr = (cc_uint8*)Mem_TryRealloc(req->data, newSize, 1);
-	}
-
-	if (!ptr) return false;
-	req->data = ptr;
-	return true;
-}
-
-/* Increases size and updates current progress */
-static void Http_BufferExpanded(struct HttpRequest* req, cc_uint32 read) {
-	req->size += read;
-	if (req->contentLength) req->progress = (int)(100.0f * req->size / req->contentLength);
-}
-
-
-/*########################################################################################################################*
-*---------------------------------------------------Common backend code---------------------------------------------------*
-*#########################################################################################################################*/
-static void Http_ParseCookie(struct HttpRequest* req, const cc_string* value) {
-	cc_string name, data;
-	int dataEnd;
-	String_UNSAFE_Separate(value, '=', &name, &data);
-	/* Cookie is: __cfduid=xyz; expires=abc; path=/; domain=.classicube.net; HttpOnly */
-	/* However only the __cfduid=xyz part of the cookie should be stored */
-	dataEnd = String_IndexOf(&data, ';');
-	if (dataEnd >= 0) data.length = dataEnd;
-
-	EntryList_Set(req->cookies, &name, &data, '=');
-}
-
-static void Http_ParseContentLength(struct HttpRequest* req, const cc_string* value) {
-	int contentLen = 0;
-	Convert_ParseInt(value, &contentLen);
-	
-	if (contentLen <= 0) return;
-	req->contentLength = contentLen;
-}
-
-/* Parses a HTTP header */
-static void Http_ParseHeader(struct HttpRequest* req, const cc_string* line) {
-	static const cc_string httpVersion = String_FromConst("HTTP");
-	cc_string name, value, parts[3];
-	int numParts;
-
-	/* HTTP[version] [status code] [status reason] */
-	if (String_CaselessStarts(line, &httpVersion)) {
-		numParts = String_UNSAFE_Split(line, ' ', parts, 3);
-		if (numParts >= 2) Convert_ParseInt(&parts[1], &req->statusCode);
-	}
-	/* For all other headers:  name: value */
-	if (!String_UNSAFE_Separate(line, ':', &name, &value)) return;
-
-	if (String_CaselessEqualsConst(&name, "ETag")) {
-		String_CopyToRawArray(req->etag, &value);
-	} else if (String_CaselessEqualsConst(&name, "Content-Length")) {
-		Http_ParseContentLength(req, &value);
-	} else if (String_CaselessEqualsConst(&name, "X-Dropbox-Content-Length")) {
-		/* dropbox stopped returning Content-Length header since switching to chunked transfer */
-		/*  https://www.dropboxforum.com/t5/Discuss-Dropbox-Developer-API/Dropbox-media-can-t-be-access-by-azure-blob/td-p/575458 */
-		Http_ParseContentLength(req, &value);
-	} else if (String_CaselessEqualsConst(&name, "Last-Modified")) {
-		String_CopyToRawArray(req->lastModified, &value);
-	} else if (req->cookies && String_CaselessEqualsConst(&name, "Set-Cookie")) {
-		Http_ParseCookie(req, &value);
-	}
-}
-
-/* Adds a http header to the request headers. */
-static void Http_AddHeader(struct HttpRequest* req, const char* key, const cc_string* value);
-
-/* Adds all the appropriate headers for a request. */
-static void Http_SetRequestHeaders(struct HttpRequest* req) {
-	static const cc_string contentType = String_FromConst("application/x-www-form-urlencoded");
-	cc_string str, cookies; char cookiesBuffer[1024];
-	int i;
-
-	if (req->lastModified[0]) {
-		str = String_FromRawArray(req->lastModified);
-		Http_AddHeader(req, "If-Modified-Since", &str);
-	}
-	if (req->etag[0]) {
-		str = String_FromRawArray(req->etag);
-		Http_AddHeader(req, "If-None-Match", &str);
-	}
-
-	if (req->data) Http_AddHeader(req, "Content-Type", &contentType);
-	if (!req->cookies || !req->cookies->count) return;
-
-	String_InitArray(cookies, cookiesBuffer);
-	for (i = 0; i < req->cookies->count; i++) {
-		if (i) String_AppendConst(&cookies, "; ");
-		str = StringsBuffer_UNSAFE_Get(req->cookies, i);
-		String_AppendString(&cookies, &str);
-	}
-	Http_AddHeader(req, "Cookie", &cookies);
-}
-
-/* TODO: Rewrite to use a local variable instead */
-static cc_string* Http_GetUserAgent_UNSAFE(void) {
-	static char userAgentBuffer[STRING_SIZE];
-	static cc_string userAgent;
-
-	String_InitArray(userAgent, userAgentBuffer);
-	String_AppendConst(&userAgent, GAME_APP_NAME);
-	String_AppendConst(&userAgent, Platform_AppNameSuffix);
-	return &userAgent;
-}
-
-
-#if CC_NET_BACKEND == CC_NET_BACKEND_LIBCURL
 /*########################################################################################################################*
 *-----------------------------------------------------libcurl backend-----------------------------------------------------*
 *#########################################################################################################################*/
 #include "Errors.h"
 #include <stddef.h>
+
 /* === BEGIN CURL HEADERS === */
 typedef void CURL;
 struct curl_slist;
@@ -204,19 +135,15 @@ static const cc_string curlAlt = String_FromConst("libcurl.so.3");
 static cc_bool LoadCurlFuncs(void) {
 	static const struct DynamicLibSym funcs[] = {
 #if !defined CC_BUILD_OS2
-		DynamicLib_ReqSym(curl_global_init),    DynamicLib_ReqSym(curl_global_cleanup),
-		DynamicLib_ReqSym(curl_easy_init),      DynamicLib_ReqSym(curl_easy_perform),
-		DynamicLib_ReqSym(curl_easy_setopt),    DynamicLib_ReqSym(curl_easy_cleanup),
-		DynamicLib_ReqSym(curl_slist_free_all), DynamicLib_ReqSym(curl_slist_append),
-		/* Non-essential function missing in older curl versions */
-		DynamicLib_OptSym(curl_easy_strerror)
+		DynamicLib_Sym(curl_global_init),    DynamicLib_Sym(curl_global_cleanup),
+		DynamicLib_Sym(curl_easy_init),      DynamicLib_Sym(curl_easy_perform),
+		DynamicLib_Sym(curl_easy_setopt),    DynamicLib_Sym(curl_easy_cleanup),
+		DynamicLib_Sym(curl_slist_free_all), DynamicLib_Sym(curl_slist_append)
 #else
-		DynamicLib_ReqSymC(curl_global_init),    DynamicLib_ReqSymC(curl_global_cleanup),
-		DynamicLib_ReqSymC(curl_easy_init),      DynamicLib_ReqSymC(curl_easy_perform),
-		DynamicLib_ReqSymC(curl_easy_setopt),    DynamicLib_ReqSymC(curl_easy_cleanup),
-		DynamicLib_ReqSymC(curl_slist_free_all), DynamicLib_ReqSymC(curl_slist_append),
-		/* Non-essential function missing in older curl versions */
-		DynamicLib_OptSymC(curl_easy_strerror)
+		DynamicLib_SymC(curl_global_init),    DynamicLib_SymC(curl_global_cleanup),
+		DynamicLib_SymC(curl_easy_init),      DynamicLib_SymC(curl_easy_perform),
+		DynamicLib_SymC(curl_easy_setopt),    DynamicLib_SymC(curl_easy_cleanup),
+		DynamicLib_SymC(curl_slist_free_all), DynamicLib_SymC(curl_slist_append)
 #endif
 	};
 	cc_bool success;
@@ -226,6 +153,9 @@ static cc_bool LoadCurlFuncs(void) {
 	if (!lib) { 
 		success = DynamicLib_LoadAll(&curlAlt, funcs, Array_Elems(funcs), &lib);
 	}
+
+	/* Non-essential function missing in older curl versions */
+	_curl_easy_strerror = DynamicLib_Get2(lib, "curl_easy_strerror");
 	return success;
 }
 
@@ -280,12 +210,12 @@ static size_t Http_ProcessHeader(char* buffer, size_t size, size_t nitems, void*
 	return nitems;
 }
 
-/* Processes a chunk of data downloaded from the web server */
+/* Chunk of data downloaded from the web server */
 static size_t Http_ProcessData(char *buffer, size_t size, size_t nitems, void* userdata) {
 	struct HttpRequest* req = (struct HttpRequest*)userdata;
 
-	int ok = Http_BufferExpand(req, nitems);
-	if (!ok) Process_Abort("Out of memory for HTTP request");
+	if (!req->_capacity) Http_BufferInit(req);
+	Http_BufferEnsure(req, nitems);
 
 	Mem_Copy(&req->data[req->size], buffer, nitems);
 	Http_BufferExpanded(req, nitems);
@@ -303,9 +233,7 @@ static void Http_SetCurlOpts(struct HttpRequest* req) {
 	_curl_easy_setopt(curl, CURLOPT_HEADERDATA,     req);
 	_curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION,  Http_ProcessData);
 	_curl_easy_setopt(curl, CURLOPT_WRITEDATA,      req);
-
-	//if (curlVerbose) _curl_easy_setopt(curl, CURLOPT_VERBOSE, 1L);		>>> Not working on non SSL PPC
-	//if (httpsVerify) return;                                              >>>
+	//if (curlVerbose) _curl_easy_setopt(curl, CURLOPT_VERBOSE, 1L); >>> Not working on non SSL PPC
 	_curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
 }
 
@@ -330,41 +258,42 @@ static cc_result HttpBackend_Do(struct HttpRequest* req, cc_string* url) {
 		_curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE, req->size);
 		_curl_easy_setopt(curl, CURLOPT_POSTFIELDS,    req->data);
 
-		/* per curl docs, we must persist POST data until request finishes */
 		req->data = NULL;
 		req->size = 0;
 	} else {
-		/* Undo POST/HEAD state */
 		_curl_easy_setopt(curl, CURLOPT_HTTPGET, 1L);
 	}
 
-	/* must be at least CURL_ERROR_SIZE (256) in size */
 	req->error = Mem_TryAllocCleared(257, 1);
 	_curl_easy_setopt(curl, CURLOPT_ERRORBUFFER, req->error);
-	/* TODO stackalloc instead and then copy to dynamic array later? */
-	/*  probably not worth the extra complexity though */
 
 	req->_capacity = 0;
 	req->progress  = HTTP_PROGRESS_FETCHING_DATA;
 	res = _curl_easy_perform(curl);
 	req->progress  = 100;
 
-	/* Free error string if it isn't needed */
 	if (req->error && !req->error[0]) {
 		Mem_Free(req->error);
 		req->error = NULL;
 	}
 
 	_curl_slist_free_all((struct curl_slist*)req->meta);
-	/* can free now that request has finished */
 	Mem_Free(post_data);
 	_curl_easy_setopt(curl, CURLOPT_ERRORBUFFER, NULL);
 	return res;
 }
-#elif CC_NET_BACKEND == CC_NET_BACKEND_BUILTIN
+#endif /* end of CC_BUILD_NETWORKING / libcurl backend */
+
+
+/*########################################################################################################################*
+*--------------------------------------------------Builtin networking backend---------------------------------------------*
+*#########################################################################################################################*/
+#if CC_NET_BACKEND == CC_NET_BACKEND_BUILTIN
 #include "Errors.h"
 #include "PackedCol.h"
 #include "SSL.h"
+#endif
+
 
 /*########################################################################################################################*
 *---------------------------------------------------------HttpUrl---------------------------------------------------------*
@@ -388,7 +317,7 @@ static void HttpUrl_EncodeUrl(cc_string* dst, const cc_string* src) {
 		len = Convert_CP437ToUtf8(c, data);
 
 		/* URL path/query must not be URL encoded (it normally would be) */
-		if (c == '/' || c == '?' || c == '=') {
+		if (c == '/' || c == '?' || c == '=' || c == '&') {
 			String_Append(dst, c);
 		} else {
 			Http_UrlEncode(dst, data, len);
@@ -396,12 +325,22 @@ static void HttpUrl_EncodeUrl(cc_string* dst, const cc_string* src) {
 	}
 }
 
+static const cc_string url_rewrite_srcs[] = {
+	#define URL_REMAP_FUNC(src_base, src_host, dst_base, dst_host) String_FromConst(src_host),
+	#include "_HttpUrlMap.h"
+};
+static const cc_string url_rewrite_dsts[] = {
+	#undef  URL_REMAP_FUNC
+	#define URL_REMAP_FUNC(src_base, src_host, dst_base, dst_host) String_FromConst(dst_host),
+	#include "_HttpUrlMap.h"
+};
+
 /* Splits up the components of a URL */
 static void HttpUrl_Parse(const cc_string* src, struct HttpUrl* url) {
 	cc_string scheme, path, addr, resource;
 	/* URL is of form [scheme]://[server host]:[server port]/[resource] */
 	/* For simplicity, parsed as [scheme]://[server address]/[resource] */
-	int idx = String_IndexOfConst(src, "://");
+	int i, idx = String_IndexOfConst(src, "://");
 
 	scheme = idx == -1 ? String_Empty : String_UNSAFE_Substring(src,   0, idx);
 	path   = idx == -1 ? *src         : String_UNSAFE_SubstringAt(src, idx + 3);
@@ -410,6 +349,14 @@ static void HttpUrl_Parse(const cc_string* src, struct HttpUrl* url) {
 	String_UNSAFE_Separate(&path, '/', &addr, &resource);
 
 	String_InitArray(url->address, url->_addressBuffer);
+	/* Converts e.g. "dl.dropbox.com" into "dl.dropboxusercontent.com" */
+	for (i = 0; i < Array_Elems(url_rewrite_srcs); i++) 
+	{
+		if (!String_Equals(&addr, &url_rewrite_srcs[i])) continue;
+
+		addr = url_rewrite_dsts[i];
+		break;
+	}
 	String_Copy(&url->address, &addr);
 
 	String_InitArray(url->resource, url->_resourceBuffer);
@@ -584,8 +531,17 @@ enum HTTP_RESPONSE_STATE {
 	HTTP_RESPONSE_STATE_CHUNK_TRAILERS,
 	HTTP_RESPONSE_STATE_DONE
 };
-#define HTTP_HEADER_MAX_LENGTH   4096
 #define HTTP_LOCATION_MAX_LENGTH 256
+
+#if CC_BUILD_MAXSTACK <= (48 * 1024)
+	#define HTTP_HEADER_MAX_LENGTH 2048
+	#define INPUT_BUFFER_LEN 4096
+	#define SEND_BUFFER_LEN  4096
+#else
+	#define HTTP_HEADER_MAX_LENGTH 4096
+	#define INPUT_BUFFER_LEN  8192
+	#define SEND_BUFFER_LEN  16384
+#endif
 
 struct HttpClientState {
 	enum HTTP_RESPONSE_STATE state;
@@ -638,8 +594,9 @@ static void HttpClient_Serialise(struct HttpClientState* state) {
 	} /* TODO post redirect handling */
 }
 
+
 static cc_result HttpClient_SendRequest(struct HttpClientState* state) {
-	char inputBuffer[16384];
+	char inputBuffer[SEND_BUFFER_LEN];
 	cc_string inputMsg;
 
 	String_InitArray(inputMsg, inputBuffer);
@@ -844,7 +801,6 @@ static cc_result HttpClient_Process(struct HttpClientState* state, char* buffer,
 	return 0;
 }
 
-#define INPUT_BUFFER_LEN 8192
 static cc_result HttpClient_ParseResponse(struct HttpClientState* state) {
 	struct HttpRequest* req = state->req;
 	cc_uint8 buffer[INPUT_BUFFER_LEN];
@@ -898,7 +854,6 @@ static cc_result HttpClient_HandleRedirect(struct HttpClientState* state) {
 *#########################################################################################################################*/
 static void HttpBackend_Init(void) {
 	SSLBackend_Init(httpsVerify);
-	//httpOnly = true; // TODO: insecure
 }
 
 static void Http_AddHeader(struct HttpRequest* req, const char* key, const cc_string* value) {
@@ -919,18 +874,24 @@ static cc_result HttpBackend_PerformRequest(struct HttpClientState* state) {
 
 	return res;
 }
+static const char* verbs[] = { "GET", "HEAD", "POST" };
 
-static cc_result HttpBackend_Do(struct HttpRequest* req, cc_string* urlStr) {
+static cc_result HttpBackend_Do(struct HttpRequest* req) {
 	struct HttpClientState state;
 	cc_bool retried = false;
 	int redirects   = 0;
+	cc_string url;
 	cc_result res;
 
 	HttpClientState_Init(&state);
-	HttpUrl_Parse(urlStr, &state.url);
+	url = String_FromRawArray(req->url);
+	HttpUrl_Parse(&url, &state.url);
 	state.req = req;
 
 	for (;;) {
+		Platform_Log4("Fetching %c%s%s (%c)", state.url.https ? "https://" : "http://", 
+					&state.url.address, &state.url.resource, verbs[req->requestType]);
+
 		res = HttpBackend_PerformRequest(&state);
 		/* TODO: Can we handle this while preserving the TCP connection */
 		if (res == SSL_ERR_CONTEXT_DEAD && !retried) {
@@ -963,261 +924,6 @@ static cc_result HttpBackend_Do(struct HttpRequest* req, cc_string* urlStr) {
 
 static cc_bool HttpBackend_DescribeError(cc_result res, cc_string* dst) {
 	return SSLBackend_DescribeError(res, dst);
-}
-#elif defined CC_BUILD_ANDROID
-/*########################################################################################################################*
-*-----------------------------------------------------Android backend-----------------------------------------------------*
-*#########################################################################################################################*/
-struct HttpRequest* java_req;
-static jmethodID JAVA_httpInit, JAVA_httpSetHeader, JAVA_httpPerform, JAVA_httpSetData;
-static jmethodID JAVA_httpDescribeError;
-
-static cc_bool HttpBackend_DescribeError(cc_result res, cc_string* dst) {
-	char buffer[NATIVE_STR_LEN];
-	cc_string err;
-	JNIEnv* env;
-	jvalue args[1];
-	jobject obj;
-	
-	JavaGetCurrentEnv(env);
-	args[0].i = res;
-	obj       = JavaSCall_Obj(env, JAVA_httpDescribeError, args);
-	if (!obj) return false;
-
-	err = JavaGetString(env, obj, buffer);
-	String_AppendString(dst, &err);
-	(*env)->DeleteLocalRef(env, obj);
-	return true;
-}
-
-static void Http_AddHeader(struct HttpRequest* req, const char* key, const cc_string* value) {
-	JNIEnv* env;
-	jvalue args[2];
-
-	JavaGetCurrentEnv(env);
-	args[0].l = JavaMakeConst(env,  key);
-	args[1].l = JavaMakeString(env, value);
-
-	JavaSCall_Void(env, JAVA_httpSetHeader, args);
-	(*env)->DeleteLocalRef(env, args[0].l);
-	(*env)->DeleteLocalRef(env, args[1].l);
-}
-
-/* Processes a HTTP header downloaded from the server */
-static void JNICALL java_HttpParseHeader(JNIEnv* env, jobject o, jstring header) {
-	char buffer[NATIVE_STR_LEN];
-	cc_string line = JavaGetString(env, header, buffer);
-	Http_ParseHeader(java_req, &line);
-}
-
-/* Processes a chunk of data downloaded from the web server */
-static void JNICALL java_HttpAppendData(JNIEnv* env, jobject o, jbyteArray arr, jint len) {
-	struct HttpRequest* req = java_req;
-	int ok = Http_BufferExpand(req, len);	
-	if (!ok) Process_Abort("Out of memory for HTTP request");
-
-	(*env)->GetByteArrayRegion(env, arr, 0, len, (jbyte*)(&req->data[req->size]));
-	Http_BufferExpanded(req, len);
-}
-
-static const JNINativeMethod methods[] = {
-	{ "httpParseHeader", "(Ljava/lang/String;)V", java_HttpParseHeader },
-	{ "httpAppendData",  "([BI)V",                java_HttpAppendData }
-};
-static void CacheMethodRefs(JNIEnv* env) {
-	JAVA_httpInit      = JavaGetSMethod(env, "httpInit",      "(Ljava/lang/String;Ljava/lang/String;)I");
-	JAVA_httpSetHeader = JavaGetSMethod(env, "httpSetHeader", "(Ljava/lang/String;Ljava/lang/String;)V");
-	JAVA_httpPerform   = JavaGetSMethod(env, "httpPerform",   "()I");
-	JAVA_httpSetData   = JavaGetSMethod(env, "httpSetData",   "([B)I");
-
-	JAVA_httpDescribeError = JavaGetSMethod(env, "httpDescribeError", "(I)Ljava/lang/String;");
-}
-
-static void HttpBackend_Init(void) {
-	JNIEnv* env;
-	JavaGetCurrentEnv(env);
-	JavaRegisterNatives(env, methods);
-	CacheMethodRefs(env);
-}
-
-static cc_result Http_InitReq(JNIEnv* env, struct HttpRequest* req, cc_string* url) {
-	static const char* verbs[3] = { "GET", "HEAD", "POST" };
-	jvalue args[2];
-	jint res;
-
-	args[0].l = JavaMakeString(env, url);
-	args[1].l = JavaMakeConst(env,  verbs[req->requestType]);
-
-	res = JavaSCall_Int(env, JAVA_httpInit, args);
-	(*env)->DeleteLocalRef(env, args[0].l);
-	(*env)->DeleteLocalRef(env, args[1].l);
-	return res;
-}
-
-static cc_result Http_SetData(JNIEnv* env, struct HttpRequest* req) {
-	jvalue args[1];
-	jint res;
-
-	args[0].l = JavaMakeBytes(env, req->data, req->size);
-	res = JavaSCall_Int(env, JAVA_httpSetData, args);
-	(*env)->DeleteLocalRef(env, args[0].l);
-	return res;
-}
-
-static cc_result HttpBackend_Do(struct HttpRequest* req, cc_string* url) {
-	JNIEnv* env;
-	jint res;
-
-	JavaGetCurrentEnv(env);
-	if ((res = Http_InitReq(env, req, url))) return res;
-	java_req = req;
-
-	Http_SetRequestHeaders(req);
-	Http_AddHeader(req, "User-Agent", Http_GetUserAgent_UNSAFE());
-	
-	if (req->data) {
-		if (res = Http_SetData(env, req)) return res;
-		HttpRequest_Free(req);
-	}
-
-	req->_capacity = 0;
-	req->progress  = HTTP_PROGRESS_FETCHING_DATA;
-	res = JavaSCall_Int(env, JAVA_httpPerform, NULL);
-	req->progress  = 100;
-	return res;
-}
-#elif defined CC_BUILD_CFNETWORK
-/*########################################################################################################################*
-*----------------------------------------------------CFNetwork backend----------------------------------------------------*
-*#########################################################################################################################*/
-#include "Errors.h"
-#include <stddef.h>
-#include <CFNetwork/CFNetwork.h>
-
-static cc_bool HttpBackend_DescribeError(cc_result res, cc_string* dst) {
-    return false;
-}
-
-static void HttpBackend_Init(void) {
-    
-}
-
-static void Http_AddHeader(struct HttpRequest* req, const char* key, const cc_string* value) {
-    char tmp[NATIVE_STR_LEN];
-    CFStringRef keyCF, valCF;
-    CFHTTPMessageRef msg = (CFHTTPMessageRef)req->meta;
-    String_EncodeUtf8(tmp, value);
-    
-    keyCF = CFStringCreateWithCString(NULL, key, kCFStringEncodingUTF8);
-    valCF = CFStringCreateWithCString(NULL, tmp, kCFStringEncodingUTF8);
-    CFHTTPMessageSetHeaderFieldValue(msg, keyCF, valCF);
-    CFRelease(keyCF);
-    CFRelease(valCF);
-}
-
-static void Http_CheckHeader(const void* k, const void* v, void* ctx) {
-    cc_string line; char lineBuffer[2048];
-    char keyBuf[128]  = { 0 };
-    char valBuf[1024] = { 0 };
-    String_InitArray(line, lineBuffer);
-    
-    CFStringGetCString((CFStringRef)k, keyBuf, sizeof(keyBuf), kCFStringEncodingUTF8);
-    CFStringGetCString((CFStringRef)v, valBuf, sizeof(valBuf), kCFStringEncodingUTF8);
-    
-    String_Format2(&line, "%c:%c", keyBuf, valBuf);
-    Http_ParseHeader((struct HttpRequest*)ctx, &line);
-    ctx = NULL;
-}
-
-static cc_result ParseResponseHeaders(struct HttpRequest* req, CFReadStreamRef stream) {
-    CFHTTPMessageRef response = CFReadStreamCopyProperty(stream, kCFStreamPropertyHTTPResponseHeader);
-    if (!response) return ERR_INVALID_ARGUMENT;
-    
-    CFDictionaryRef headers = CFHTTPMessageCopyAllHeaderFields(response);
-    CFDictionaryApplyFunction(headers, Http_CheckHeader, req);
-    req->statusCode = CFHTTPMessageGetResponseStatusCode(response);
-    
-    CFRelease(headers);
-    CFRelease(response);
-    return 0;
-}
-
-static cc_result HttpBackend_Do(struct HttpRequest* req, cc_string* url) {
-    static CFStringRef verbs[] = { CFSTR("GET"), CFSTR("HEAD"), CFSTR("POST") };
-    cc_bool gotHeaders = false;
-    char tmp[NATIVE_STR_LEN];
-    CFHTTPMessageRef request;
-    CFStringRef urlCF;
-    CFURLRef urlRef;
-    cc_result result = 0;
-    
-    String_EncodeUtf8(tmp, url);
-    urlCF  = CFStringCreateWithCString(NULL, tmp, kCFStringEncodingUTF8);
-    urlRef = CFURLCreateWithString(NULL, urlCF, NULL);
-    // TODO e.g. "http://www.example.com/skin/1 2.png" causes this to return null
-    // TODO release urlCF
-    if (!urlRef) return ERR_INVALID_DATA_URL;
-    
-    request = CFHTTPMessageCreateRequest(NULL, verbs[req->requestType], urlRef, kCFHTTPVersion1_1);
-    req->meta = request;
-    Http_SetRequestHeaders(req);
-    Http_AddHeader(req, "User-Agent", Http_GetUserAgent_UNSAFE());
-    CFRelease(urlRef);
-    
-    if (req->data) {
-        CFDataRef body = CFDataCreate(NULL, req->data, req->size);
-        CFHTTPMessageSetBody(request, body);
-        CFRelease(body); /* TODO: ???? */
-		HttpRequest_Free(req);
-    }
-    
-    CFReadStreamRef stream = CFReadStreamCreateForHTTPRequest(NULL, request);
-    CFReadStreamSetProperty(stream, kCFStreamPropertyHTTPShouldAutoredirect, kCFBooleanTrue);
-    //CFHTTPReadStreamSetRedirectsAutomatically(stream, TRUE);
-    CFReadStreamOpen(stream);
-    UInt8 buf[1024];
-    
-    for (;;) {
-        CFIndex read = CFReadStreamRead(stream, buf, sizeof(buf));
-        if (read <= 0) break;
-        
-        // reading headers before for loop doesn't work
-        if (!gotHeaders) {
-            gotHeaders = true;
-            if ((result = ParseResponseHeaders(req, stream))) break;
-        }
-        
-        int ok = Http_BufferExpand(req, read);
-		if (!ok) { result = ERR_OUT_OF_MEMORY; break; }
-        
-        Mem_Copy(&req->data[req->size], buf, read);
-        Http_BufferExpanded(req, read);
-    }
-    
-    if (!gotHeaders)
-        result = ParseResponseHeaders(req, stream);
-    
-    //Thread_Sleep(1000);
-    CFRelease(request);
-    return result;
-}
-#elif !defined CC_BUILD_NETWORKING
-/*########################################################################################################################*
-*------------------------------------------------------Null backend-------------------------------------------------------*
-*#########################################################################################################################*/
-#include "Errors.h"
-
-static cc_bool HttpBackend_DescribeError(cc_result res, cc_string* dst) {
-	return false;
-}
-
-static void HttpBackend_Init(void) { }
-
-static void Http_AddHeader(struct HttpRequest* req, const char* key, const cc_string* value) { }
-
-static cc_result HttpBackend_Do(struct HttpRequest* req, cc_string* url) {
-	req->progress = 100;
-	return ERR_NOT_SUPPORTED;
 }
 #endif
 
@@ -1292,12 +998,7 @@ void Http_TryCancel(int reqID) {
 *-----------------------------------------------------Http worker---------------------------------------------------------*
 *#########################################################################################################################*/
 /* Sets up state to begin a http request */
-static void PrepareCurrentRequest(struct HttpRequest* req, cc_string* url) {
-	static const char* verbs[] = { "GET", "HEAD", "POST" };
-	Http_GetUrl(req, url);
-	Platform_Log2("Fetching %s (%c)", url, verbs[req->requestType]);
-	/* TODO change to verbs etc */
-
+static void SetCurrentRequest(struct HttpRequest* req) {
 	Mutex_Lock(curRequestMutex);
 	{
 		HttpRequest_Copy(&http_curRequest, req);
@@ -1306,12 +1007,12 @@ static void PrepareCurrentRequest(struct HttpRequest* req, cc_string* url) {
 	Mutex_Unlock(curRequestMutex);
 }
 
-static void PerformRequest(struct HttpRequest* req, cc_string* url) {
+static void PerformRequest(struct HttpRequest* req) {
 	cc_uint64 beg, end;
 	int elapsed;
 
 	beg = Stopwatch_Measure();
-	req->result = HttpBackend_Do(req, url);
+	req->result = HttpBackend_Do(req);
 	end = Stopwatch_Measure();
 
 	elapsed = Stopwatch_ElapsedMS(beg, end);
@@ -1331,11 +1032,8 @@ static void ClearCurrentRequest(void) {
 }
 
 static void DoRequest(struct HttpRequest* request) {
-	char urlBuffer[URL_MAX_SIZE]; cc_string url;
-
-	String_InitArray(url, urlBuffer);
-	PrepareCurrentRequest(request, &url);
-	PerformRequest(&http_curRequest, &url);
+	SetCurrentRequest(request);
+	PerformRequest(&http_curRequest);
 	ClearCurrentRequest();
 }
 

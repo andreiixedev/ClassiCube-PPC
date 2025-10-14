@@ -99,7 +99,7 @@ void Chat_DisableLogging(void) {
 
 static cc_bool CreateLogsDirectory(void) {
 	static const cc_string dir = String_FromConst("logs");
-	cc_filepath str;
+	cc_filepath raw_dir;
 	cc_result res;
 	/* Utils_EnsureDirectory cannot be used here because it causes a stack overflow  */
 	/* when running the game and an error occurs when trying to create the directory */
@@ -107,21 +107,22 @@ static cc_bool CreateLogsDirectory(void) {
 	/* a message in chat instead of showing a dialog box, which causes the following */
 	/* functions to be called in a recursive loop: */
 	/*                                                                                         */
-	/* Utils_EnsureDirectory --> Logger_SysWarn2 --> Chat_Add --> AppendChatLog -> OpenChatLog */
-	/*  --> Utils_EnsureDirectory --> Logger_SysWarn2 --> Chat_Add --> AppendChatLog -> OpenChatLog */
-	/*       --> Utils_EnsureDirectory --> Logger_SysWarn2 --> Chat_Add --> AppendChatLog -> OpenChatLog */
-	/*            --> Utils_EnsureDirectory --> Logger_SysWarn2 --> Chat_Add --> AppendChatLog ... */
+	/* Utils_EnsureDirectory --> Logger_IOWarn2 --> Chat_Add --> AppendChatLog -> OpenChatLog */
+	/*  --> Utils_EnsureDirectory --> Logger_IOWarn2 --> Chat_Add --> AppendChatLog -> OpenChatLog */
+	/*       --> Utils_EnsureDirectory --> Logger_IOWarn2 --> Chat_Add --> AppendChatLog -> OpenChatLog */
+	/*            --> Utils_EnsureDirectory --> Logger_IOWarn2 --> Chat_Add --> AppendChatLog ... */
 	/* and so on, until eventually the stack overflows */
-	Platform_EncodePath(&str, &dir);
-	res = Directory_Create(&str);
+	Platform_EncodePath(&raw_dir, &dir);
+	res = Directory_Create(&raw_dir);
 	if (!res || res == ReturnCode_DirectoryExists) return true;
 
 	Chat_DisableLogging();
-	Logger_SysWarn2(res, "creating directory", &dir); 
+	Logger_IOWarn2(res, "creating directory", &raw_dir); 
 	return false;
 }
 
 static void OpenChatLog(struct cc_datetime* now) {
+	cc_filepath raw_path;
 	cc_result res;
 	int i;
 	if (Platform_ReadonlyFilesystem || !CreateLogsDirectory()) return;
@@ -137,10 +138,12 @@ static void OpenChatLog(struct cc_datetime* now) {
 			String_Format1(&logPath, "%s.txt", &logName);
 		}
 
-		res = Stream_AppendFile(&logStream, &logPath);
+		Platform_EncodePath(&raw_path, &logPath);
+		res = Stream_AppendPath(&logStream, &raw_path);
+
 		if (res && res != ReturnCode_FileShareViolation) {
 			Chat_DisableLogging();
-			Logger_SysWarn2(res, "appending to", &logPath);
+			Logger_IOWarn2(res, "appending to", &raw_path);
 			return;
 		}
 

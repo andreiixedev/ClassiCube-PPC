@@ -375,17 +375,22 @@ static int IsCached(const cc_string* url) {
 static cc_bool OpenCachedData(const cc_string* url, struct Stream* stream) {
 	cc_string mainPath; char mainBuffer[FILENAME_SIZE];
 	cc_string altPath;  char  altBuffer[FILENAME_SIZE];
+	cc_filepath raw_path;
 	cc_result res;
+
 	String_InitArray(mainPath, mainBuffer);
 	String_InitArray(altPath,   altBuffer);
 	
 
 	MakeCachePath(&mainPath, &altPath, url);
-	res = Stream_OpenFile(stream, &mainPath);
+	Platform_EncodePath(&raw_path, &mainPath);
+	res = Stream_OpenPath(stream,  &raw_path);
 
 	/* try fallback cache if can't find in main cache */
-	if (res == ReturnCode_FileNotFound && altPath.length)
-		res = Stream_OpenFile(stream, &altPath);
+	if (res == ReturnCode_FileNotFound && altPath.length) {
+		Platform_EncodePath(&raw_path, &altPath);
+		res = Stream_OpenPath(stream,  &raw_path);
+	}
 
 	if (res == ReturnCode_FileNotFound) return false;
 	if (res) { Logger_SysWarn2(res, "opening cache for", url); return false; }
@@ -490,7 +495,7 @@ void TexturePack_SetDefault(const cc_string* texPack) {
 	Options_Set(OPT_DEFAULT_TEX_PACK, texPack);
 }
 
-cc_result TexturePack_ExtractDefault(DefaultZipCallback callback) {
+cc_result TexturePack_ExtractDefault(DefaultZipCallback callback, const char** default_path) {
 	cc_result res = ReturnCode_FileNotFound;
 	const char* defaults[3];
 	cc_string path;
@@ -504,8 +509,13 @@ cc_result TexturePack_ExtractDefault(DefaultZipCallback callback) {
 	{
 		path = String_FromReadonly(defaults[i]);
 		res  = callback(&path);
-		if (!res) return 0;
+		if (res) continue;
+
+		*default_path = defaults[i];
+		return 0;
 	}
+
+	*default_path = NULL;
 	return res;
 }
 
@@ -529,29 +539,51 @@ static cc_result ExtractPng(struct Stream* stream) {
 
 static cc_bool needReload;
 static cc_result ExtractFrom(struct Stream* stream, const cc_string* path) {
+#if CC_BUILD_MAXSTACK <= (32 * 1024)
+	struct ZipEntry* entries = (struct ZipEntry*)Mem_TryAllocCleared(512, sizeof(struct ZipEntry));
+#else
 	struct ZipEntry entries[512];
+#endif
 	cc_result res;
+#if CC_BUILD_MAXSTACK <= (32 * 1024)
+	if (!entries) return ERR_OUT_OF_MEMORY;
+#endif
 
 	Event_RaiseVoid(&TextureEvents.PackChanged);
 	/* If context is lost, then trying to load textures will just fail */
 	/* So defer loading the texture pack until context is restored */
-	if (Gfx.LostContext) { needReload = true; return 0; }
+	if (Gfx.LostContext) {
+		needReload = true;
+		res = 0;
+		goto ret;
+	}
 	needReload = false;
 
 	res = ExtractPng(stream);
 	if (res == PNG_ERR_INVALID_SIG) {
 		/* file isn't a .png image, probably a .zip archive then */
+
+#if CC_BUILD_MAXSTACK <= (32 * 1024)
+		res = Zip_Extract(stream, SelectZipEntry, ProcessZipEntry,
+							entries, 512);
+#else
 		res = Zip_Extract(stream, SelectZipEntry, ProcessZipEntry,
 							entries, Array_Elems(entries));
+#endif
 
 		if (res) Logger_SysWarn2(res, "extracting", path);
 	} else if (res) {
 		Logger_SysWarn2(res, "decoding", path);
 	}
+	ret:
+#if CC_BUILD_MAXSTACK <= (32 * 1024)
+	Mem_Free(entries);
+#endif
 	return res;
 }
 
 #if defined CC_BUILD_PS1 || defined CC_BUILD_SATURN
+/* Load hardcoded texture pack */
 #include "../misc/ps1/classicubezip.h"
 
 static cc_result ExtractFromFile(const cc_string* path) {
@@ -560,13 +592,20 @@ static cc_result ExtractFromFile(const cc_string* path) {
 
 	return ExtractFrom(&stream, path);
 }
+#elif !defined CC_BUILD_FILESYSTEM
+/* E.g. GBA/32X don't support textures at all */
+static cc_result ExtractFromFile(const cc_string* path) {
+	return ERR_NOT_SUPPORTED;
+}
 #else
 static cc_result ExtractFromFile(const cc_string* path) {
 	struct Stream stream;
+	cc_filepath raw_path;
 	cc_result res;
 
-	res = Stream_OpenFile(&stream, path);
-	if (res) { Logger_SysWarn2(res, "opening", path); return res; }
+	Platform_EncodePath(&raw_path, path);
+	res = Stream_OpenPath(&stream, &raw_path);
+	if (res) { Logger_IOWarn2(res, "opening", &raw_path); return res; }
 
 	res = ExtractFrom(&stream, path);
 	/* No point logging error for closing readonly file */
@@ -576,16 +615,17 @@ static cc_result ExtractFromFile(const cc_string* path) {
 #endif
 
 static cc_result ExtractUserTextures(void) {
+	const char* default_path;
 	cc_string path;
 	cc_result res;
 
 	/* TODO: Log error for multiple default texture pack extract failure */
-	res = TexturePack_ExtractDefault(ExtractFromFile);
+	res = TexturePack_ExtractDefault(ExtractFromFile, &default_path);
 	/* Game shows a warning dialog if default textures are missing */
 	TexturePack_DefaultMissing = res == ReturnCode_FileNotFound;
 
 	path = TexturePack_Path;
-	if (String_CaselessEqualsConst(&path, "texpacks/default.zip")) path.length = 0;
+	if (default_path && String_CaselessEqualsConst(&path, default_path)) return res;
 	if (Game_ClassicMode || path.length == 0) return res;
 
 	/* override default textures with user's selected texture pack */
@@ -617,23 +657,19 @@ cc_result TexturePack_ExtractCurrent(cc_bool forceReload) {
 	return res;
 }
 
+/* Extracts and updates cache for the downloaded texture pack */
+static void ApplyDownloaded(struct HttpRequest* item) {
+	struct Stream mem;
+	cc_string url;
 
-#include "ProxyPPC.h" /*Import for proxyPPC.h (to add proxy)*/
+	url = String_FromRawArray(item->url);
+	if (!Platform_ReadonlyFilesystem) UpdateCache(item);
+	/* Took too long to download and is no longer active texture pack */
+	if (!String_Equals(&TexturePack_Url, &url)) return;
 
-static void DownloadAsync(cc_string* url) {
-    cc_string etag = String_Empty;
-    cc_string time = String_Empty;
-
-    /*Proxy From ProxyPPC.h*/
-    ApplyProxyPPC(url);
-
-    if (IsCached(url)) {
-        time = GetCachedLastModified(url);
-        etag = GetCachedETag(url);
-    }
-
-    Http_TryCancel(TexturePack_ReqID);
-    TexturePack_ReqID = Http_AsyncGetDataEx(url, HTTP_FLAG_PRIORITY, &time, &etag, NULL);
+	Stream_ReadonlyMemory(&mem, item->data, item->size);
+	ExtractFrom(&mem, &url);
+	usingDefault = false;
 }
 
 void TexturePack_CheckPending(void) {

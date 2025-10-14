@@ -33,6 +33,8 @@
 #include "InputHandler.h"
 #include "HeldBlockRenderer.h"
 #include "Options.h"
+#include "Screens.h"
+#include "Audio.h"
 
 struct _ProtocolData Protocol;
 
@@ -78,7 +80,7 @@ static struct CpeExt
 	bulkBlockUpdate_Ext = { "BulkBlockUpdate", 1 },
 	textColors_Ext      = { "TextColors", 1 },
 	envMapAspect_Ext    = { "EnvMapAspect", 2 },
-	entityProperty_Ext  = { "EntityProperty", 1 },
+	entityProperty_Ext  = { "EntityProperty", 2 },
 	extEntityPos_Ext    = { "ExtEntityPositions", 1 },
 	twoWayPing_Ext      = { "TwoWayPing", 1 },
 	invOrder_Ext        = { "InventoryOrder", 1 },
@@ -1426,6 +1428,12 @@ static void CPE_SetEntityProperty(cc_uint8* data) {
 
 		Entity_UpdateModelBounds(e);
 		return;
+	case 6:
+		scale = value / 1000.0f;
+		if (scale < -1024.0f) scale = -1024.0f;
+		if (scale >  1024.0f) scale =  1024.0f;
+		e->PushStrength = scale;
+		return;
 	default:
 		return;
 	}
@@ -1605,6 +1613,17 @@ static void CPE_CinematicGui(cc_uint8* data) {
 	Gui.BarSize = (float)barSize / UInt16_MaxValue;
 }
 
+static void CPE_ToggleBlockList(cc_uint8* data) {
+	cc_bool closeBlockList = data[0];
+
+	if (closeBlockList) {
+		InventoryScreen_Hide();
+	}
+	else {
+		InventoryScreen_Show();
+	}
+}
+
 static void CPE_Reset(void) {
 	cpe_serverExtensionsCount = 0; cpe_pingTicks = 0;
 	CPEExtensions_Reset();
@@ -1649,6 +1668,7 @@ static void CPE_Reset(void) {
 	Net_Set(OPCODE_ENTITY_TELEPORT_EXT, CPE_ExtEntityTeleport, 11);
 	Net_Set(OPCODE_LIGHTING_MODE, CPE_LightingMode, 3);
 	Net_Set(OPCODE_CINEMATIC_GUI, CPE_CinematicGui, 10);
+	Net_Set(OPCODE_TOGGLE_BLOCK_LIST, CPE_ToggleBlockList, 2);
 }
 
 static cc_uint8* CPE_Tick(cc_uint8* data) {

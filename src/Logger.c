@@ -52,9 +52,10 @@
 /* Need this to detect macOS < 10.4, and switch to NS* api instead if so */
 #include <AvailabilityMacros.h>
 #endif
+
 /* Only show up to 50 frames in backtrace */
 #define MAX_BACKTRACE_FRAMES 50
-
+static cc_bool cefCrash;
 
 /*########################################################################################################################*
 *----------------------------------------------------------Warning--------------------------------------------------------*
@@ -115,9 +116,10 @@ static const char* GetCCErrorDesc(cc_result res) {
 	case NBT_ERR_EXPECTED_ARR: return "Expected ByteArray NBT tag";
 	case NBT_ERR_ARR_TOO_SMALL:return "ByteArray NBT tag too small";
 
-	case HTTP_ERR_NO_SSL: return "HTTPS URLs are not currently supported";
+	case HTTP_ERR_NO_SSL:       return "HTTPS URLs are not currently supported";
 	case SOCK_ERR_UNKNOWN_HOST: return "Host could not be resolved to an IP address";
-	case ERR_NO_NETWORKING: return "No working network access";
+	case ERR_NO_NETWORKING:     return "No working network access";
+	case ERR_NON_WRITABLE_FS:   return "Non-writable filesystem";
 	}
 	return NULL;
 }
@@ -190,6 +192,15 @@ void Logger_SysWarn2(cc_result res, const char* action, const cc_string* path) {
 	Logger_Warn2(res, action, path, Platform_DescribeError);
 }
 
+void Logger_IOWarn2(cc_result res, const char* action, const struct cc_filepath_* path) {
+	char strBuffer[FILENAME_SIZE];
+	cc_string str;
+
+	String_InitArray(str, strBuffer);
+	Platform_DecodePath(&str, path);
+	Logger_SysWarn2(res, action, &str);
+}
+
 
 /*########################################################################################################################*
 *------------------------------------------------------Frame dumping------------------------------------------------------*
@@ -212,6 +223,9 @@ static void PrintFrame(cc_string* str, cc_uintptr addr,
 	} else {
 		String_AppendConst(str, _NL);
 	}
+
+	/* Check if crash is most likely caused by third party plugins */
+	cefCrash |= String_ContainsConst(&module, "classicube_cef");
 }
 
 #if defined CC_BUILD_UWP
@@ -272,6 +286,12 @@ static void DumpFrame(cc_string* trace, void* addr) {
 }
 #elif defined CC_BUILD_IRIX
 /* IRIX doesn't expose a nice interface for dladdr */
+static void DumpFrame(cc_string* trace, void* addr) {
+	cc_uintptr addr_ = (cc_uintptr)addr;
+	String_Format1(trace, "%x", &addr_);
+}
+#elif defined CC_BUILD_HPUX
+/* HP-UX doesn't expose a nice interface for dladdr */
 static void DumpFrame(cc_string* trace, void* addr) {
 	cc_uintptr addr_ = (cc_uintptr)addr;
 	String_Format1(trace, "%x", &addr_);
@@ -353,18 +373,27 @@ static int GetFrames(CONTEXT* ctx, cc_uintptr* addrs, int max) {
 	frame.AddrPC.Offset    = ctx->Eip;
 	frame.AddrFrame.Offset = ctx->Ebp;
 	frame.AddrStack.Offset = ctx->Esp;
-	spRegister             = ctx->Esp;
 #elif defined _M_X64
 	type = IMAGE_FILE_MACHINE_AMD64;
 	frame.AddrPC.Offset    = ctx->Rip;
-	frame.AddrFrame.Offset = ctx->Rsp;
+	frame.AddrFrame.Offset = ctx->Rbp;
 	frame.AddrStack.Offset = ctx->Rsp;
-	spRegister             = ctx->Rsp;
+#elif defined _M_ARM64
+	type = IMAGE_FILE_MACHINE_ARM64;
+	frame.AddrPC.Offset    = ctx->Pc;
+	frame.AddrFrame.Offset = ctx->Fp;
+	frame.AddrStack.Offset = ctx->Sp;
+#elif defined _M_ARM
+	type = IMAGE_FILE_MACHINE_ARM;
+	frame.AddrPC.Offset    = ctx->Pc;
+	frame.AddrFrame.Offset = ctx->R11;
+	frame.AddrStack.Offset = ctx->Sp;
 #else
 	/* Always available after XP, so use that */
 	return RtlCaptureStackBackTrace(0, max, (void**)addrs, NULL);
 #endif
-	thread = GetCurrentThread();
+	spRegister = frame.AddrStack.Offset;
+	thread     = GetCurrentThread();
 	if (!_StackWalk) return 0;
 
 	for (count = 0; count < max; count++) 
@@ -424,7 +453,7 @@ void Logger_Backtrace(cc_string* trace, void* ctx) {
 }
 #elif defined CC_BACKTRACE_BUILTIN
 /* Implemented later at end of the file */
-#elif defined CC_BUILD_POSIX && (defined _GLIBC_ || defined CC_BUILD_OPENBSD)
+#elif defined CC_BUILD_POSIX && (defined __GLIBC__ || defined CC_BUILD_OPENBSD)
 #include <execinfo.h>
 
 void Logger_Backtrace(cc_string* trace, void* ctx) {
@@ -436,6 +465,16 @@ void Logger_Backtrace(cc_string* trace, void* ctx) {
 		DumpFrame(trace, addrs[i]);
 	}
 	String_AppendConst(trace, _NL);
+}
+#elif defined CC_BUILD_SYMBIAN
+void Logger_Backtrace(cc_string* trace, void* ctx) {
+	String_AppendConst(trace, "-- backtrace unimplemented --");
+	/* There is no dladdr on Symbian */
+}
+#elif defined CC_BUILD_HPUX
+/* HP-UX doesn't have unwind support */
+void Logger_Backtrace(cc_string* trace, void* ctx) {
+	String_AppendConst(trace, "-- backtrace unimplemented --");
 }
 #elif defined CC_BUILD_POSIX
 /* musl etc - rely on unwind from GCC instead */
@@ -549,6 +588,13 @@ static void PrintRegisters(cc_string* str, void* ctx) {
 #elif defined _M_X64
 	#define REG_GET(reg, ign) &r->R ## reg
 	Dump_X64()
+#elif defined _M_ARM64
+	#define REG_GNUM(num)     &r->X[num]
+	#define REG_GET_FP()      &r->Fp
+	#define REG_GET_LR()      &r->Lr
+	#define REG_GET_SP()      &r->Sp
+	#define REG_GET_PC()      &r->Pc
+	Dump_ARM64()
 #elif defined _M_ARM
 	#define REG_GNUM(num)     &r->R ## num
 	#define REG_GET_FP()      &r->R11
@@ -557,13 +603,6 @@ static void PrintRegisters(cc_string* str, void* ctx) {
 	#define REG_GET_LR()      &r->Lr
 	#define REG_GET_PC()      &r->Pc
 	Dump_ARM32()
-#elif defined _M_ARM64
-	#define REG_GNUM(num)     &r->X[num]
-	#define REG_GET_FP()      &r->Fp
-	#define REG_GET_LR()      &r->Lr
-	#define REG_GET_SP()      &r->Sp
-	#define REG_GET_PC()      &r->Pc
-	Dump_ARM64()
 #elif defined _M_PPC
 	#define REG_GNUM(num) &r->Gpr ## num
 	#define REG_GET_PC()  &r->Iar
@@ -769,6 +808,9 @@ static void PrintRegisters(cc_string* str, void* ctx) {
 	#define REG_GET_LR()      &r->__gregs[_REG_LR]
 	#define REG_GET_CTR()     &r->__gregs[_REG_CTR]
 	Dump_PPC()
+#elif defined __sparc__
+	#define REG_GET(ign, reg) &r->__gregs[_REG_##reg]
+	Dump_SPARC()
 #elif defined __mips__
 	#define REG_GNUM(num)     &r->__gregs[num]
 	#define REG_GET_PC()      &r->__gregs[_REG_EPC]
@@ -1132,10 +1174,14 @@ static struct Stream logStream;
 static cc_bool logOpen;
 
 void Logger_Log(const cc_string* msg) {
-	static const cc_string path = String_FromConst("client.log");
+	static const cc_string log_path = String_FromConst("client.log");
+	cc_filepath raw_path;
+
 	if (!logOpen) {
 		logOpen = true;
-		Stream_AppendFile(&logStream, &path);
+
+		Platform_EncodePath(&raw_path, &log_path);
+		Stream_AppendPath(&logStream, &raw_path);
 	}
 
 	if (!logStream.meta.file) return;
@@ -1192,8 +1238,12 @@ void Logger_DoAbort(cc_result result, const char* raw_msg, void* ctx) {
 	LogCrashHeader();
 	Logger_Log(&msg);
 
-	String_AppendConst(&msg, "Full details of the crash have been logged to 'client.log'.\n");
-	String_AppendConst(&msg, "Please report this on the ClassiCube forums or Discord.\n\n");
+	String_AppendConst(&msg, "Full details of the crash have been logged to 'client.log'.\n\n");
+	if (cefCrash) {
+		String_AppendConst(&msg, "The crash may have been caused by the CEF plugin.\nYou may want to try completely reinstalling it.\n\n");
+	} else {
+		String_AppendConst(&msg, "Please report this on the ClassiCube forums or Discord.\n\n");
+	}
 	if (ctx) DumpRegisters(ctx);
 
 	/* These two function calls used to be in a separate DumpBacktrace function */
@@ -1224,7 +1274,7 @@ void Logger_FailToStart(const char* raw_msg) {
 #include <unwind.h>
 
 static _Unwind_Reason_Code UnwindFrame(struct _Unwind_Context* ctx, void* arg) {
-	cc_uintptr addr = _Unwind_GetIP(ctx);
+	cc_uintptr addr = (cc_uintptr)_Unwind_GetIP(ctx);
 	if (!addr) return _URC_END_OF_STACK;
 
 	DumpFrame((cc_string*)arg, (void*)addr);

@@ -180,11 +180,7 @@ void Gfx_Draw2DFlat(int x, int y, int width, int height, PackedCol color) {
 
 	Gfx_SetVertexFormat(VERTEX_FORMAT_COLOURED);
 	v = (struct VertexColoured*)Gfx_LockDynamicVb(Gfx_quadVb, VERTEX_FORMAT_COLOURED, 4);
-
-	v->x = (float)x;           v->y = (float)y;            v->z = 0; v->Col = color; v++;
-	v->x = (float)(x + width); v->y = (float)y;            v->z = 0; v->Col = color; v++;
-	v->x = (float)(x + width); v->y = (float)(y + height); v->z = 0; v->Col = color; v++;
-	v->x = (float)x;           v->y = (float)(y + height); v->z = 0; v->Col = color; v++;
+	v = Gfx_Build2DFlat(x, y, width, height, color, v);
 
 	Gfx_UnlockDynamicVb(Gfx_quadVb);
 	Gfx_DrawVb_IndexedTris(4);
@@ -195,11 +191,7 @@ void Gfx_Draw2DGradient(int x, int y, int width, int height, PackedCol top, Pack
 
 	Gfx_SetVertexFormat(VERTEX_FORMAT_COLOURED);
 	v = (struct VertexColoured*)Gfx_LockDynamicVb(Gfx_quadVb, VERTEX_FORMAT_COLOURED, 4);
-
-	v->x = (float)x;           v->y = (float)y;            v->z = 0; v->Col = top; v++;
-	v->x = (float)(x + width); v->y = (float)y;            v->z = 0; v->Col = top; v++;
-	v->x = (float)(x + width); v->y = (float)(y + height); v->z = 0; v->Col = bottom; v++;
-	v->x = (float)x;           v->y = (float)(y + height); v->z = 0; v->Col = bottom; v++;
+	v = Gfx_Build2DGradient(x, y, width, height, top, bottom, v);
 
 	Gfx_UnlockDynamicVb(Gfx_quadVb);
 	Gfx_DrawVb_IndexedTris(4);
@@ -218,17 +210,28 @@ void Gfx_Draw2DTexture(const struct Texture* tex, PackedCol color) {
 }
 #endif
 
+struct VertexColoured* Gfx_Build2DFlat(int x, int y, int width, int height, 
+										PackedCol color, struct VertexColoured* v) {
+	v->x = (float)x;           v->y = (float)y;            v->z = 0; v->Col = color; v++;
+	v->x = (float)(x + width); v->y = (float)y;            v->z = 0; v->Col = color; v++;
+	v->x = (float)(x + width); v->y = (float)(y + height); v->z = 0; v->Col = color; v++;
+	v->x = (float)x;           v->y = (float)(y + height); v->z = 0; v->Col = color; v++;
+	return v;
+}
+
+struct VertexColoured* Gfx_Build2DGradient(int x, int y, int width, int height, 
+											PackedCol top, PackedCol bottom, struct VertexColoured* v) {
+	v->x = (float)x;           v->y = (float)y;            v->z = 0; v->Col = top;    v++;
+	v->x = (float)(x + width); v->y = (float)y;            v->z = 0; v->Col = top;    v++;
+	v->x = (float)(x + width); v->y = (float)(y + height); v->z = 0; v->Col = bottom; v++;
+	v->x = (float)x;           v->y = (float)(y + height); v->z = 0; v->Col = bottom; v++;
+	return v;
+}
+
 void Gfx_Make2DQuad(const struct Texture* tex, PackedCol color, struct VertexTextured** vertices) {
 	float x1 = (float)tex->x, x2 = (float)(tex->x + tex->width);
 	float y1 = (float)tex->y, y2 = (float)(tex->y + tex->height);
 	struct VertexTextured* v = *vertices;
-
-#if CC_GFX_BACKEND == CC_GFX_BACKEND_D3D9
-	/* NOTE: see "https://msdn.microsoft.com/en-us/library/windows/desktop/bb219690(v=vs.85).aspx", */
-	/* i.e. the msdn article called "Directly Mapping Texels to Pixels (Direct3D 9)" for why we have to do this. */
-	x1 -= 0.5f; x2 -= 0.5f;
-	y1 -= 0.5f; y2 -= 0.5f;
-#endif
 
 	v->x = x1; v->y = y1; v->z = 0; v->Col = color; v->U = tex->uv.u1; v->V = tex->uv.v1; v++;
 	v->x = x2; v->y = y1; v->z = 0; v->Col = color; v->U = tex->uv.u2; v->V = tex->uv.v1; v++;
@@ -244,6 +247,8 @@ static cc_bool gfx_hadFog;
 
 void Gfx_Begin2D(int width, int height) {
 	struct Matrix ortho;
+	gfx_rendering2D = true;
+
 	/* intentionally biased more towards positive Z to reduce 2D clipping issues on the DS */
 	Gfx_CalcOrthoMatrix(&ortho, (float)width, (float)height, -100.0f, 1000.0f);
 	Gfx_LoadMatrix(MATRIX_PROJ, &ortho);
@@ -252,19 +257,18 @@ void Gfx_Begin2D(int width, int height) {
 	Gfx_SetDepthTest(false);
 	Gfx_SetDepthWrite(false);
 	Gfx_SetAlphaBlending(true);
-	
+
 	gfx_hadFog = Gfx_GetFog();
 	if (gfx_hadFog) Gfx_SetFog(false);
-	gfx_rendering2D = true;
 }
 
 void Gfx_End2D(void) {
+	gfx_rendering2D = false;
 	Gfx_SetDepthTest(true);
 	Gfx_SetDepthWrite(true);
 	Gfx_SetAlphaBlending(false);
 	
 	if (gfx_hadFog) Gfx_SetFog(true);
-	gfx_rendering2D = false;
 }
 #endif
 
@@ -320,17 +324,20 @@ void Gfx_UpdateTexturePart(GfxResourceID texId, int x, int y, struct Bitmap* par
 	Gfx_UpdateTexture(texId, x, y, part, part->width, mipmaps);
 }
 
-static CC_INLINE void CopyTextureData(void* dst, int dstStride, const struct Bitmap* src, int srcStride) {
-	cc_uint8* src_ = (cc_uint8*)src->scan0;
+static CC_INLINE void CopyPixels(void* dst,       int dstStride, 
+								const void* src,  int srcStride,
+								int pixelsPerRow, int rows) {
+	cc_uint8* src_ = (cc_uint8*)src;
 	cc_uint8* dst_ = (cc_uint8*)dst;
 	int y;
 
 	if (srcStride == dstStride) {
-		Mem_Copy(dst_, src_, Bitmap_DataSize(src->width, src->height));
+		Mem_Copy(dst_, src_, Bitmap_DataSize(pixelsPerRow, rows));
 	} else {
 		/* Have to copy scanline by scanline */
-		for (y = 0; y < src->height; y++) {
-			Mem_Copy(dst_, src_, src->width * BITMAPCOLOR_SIZE);
+		for (y = 0; y < rows; y++) 
+		{
+			Mem_Copy(dst_, src_, pixelsPerRow * BITMAPCOLOR_SIZE);
 			src_ += srcStride;
 			dst_ += dstStride;
 		}
@@ -428,9 +435,9 @@ GfxResourceID Gfx_CreateTexture(struct Bitmap* bmp, cc_uint8 flags, cc_bool mipm
 }
 
 GfxResourceID Gfx_CreateTexture2(struct Bitmap* bmp, int rowWidth, cc_uint8 flags, cc_bool mipmaps) {
-	if (Gfx.SupportsNonPowTwoTextures && (flags & TEXTURE_FLAG_NONPOW2)) {
+	if (Gfx.NonPowTwoTexturesSupport && (flags & TEXTURE_FLAG_NONPOW2)) {
 		/* Texture is being deliberately created and can be successfully created */
-		/* with non power of two dimensions. Typically used for UI textures */
+		/* with non power of two dimensions. Typically only used for UI textures */
 	} else if (!Math_IsPowOf2(bmp->width) || !Math_IsPowOf2(bmp->height)) {
 		Process_Abort("Textures must have power of two dimensions");
 	}

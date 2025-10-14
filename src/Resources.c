@@ -62,17 +62,19 @@ static cc_result ZipEntry_ExtractData(struct ResourceZipEntry* e, struct Stream*
 *------------------------------------------------------Utility functions -------------------------------------------------*
 *#########################################################################################################################*/
 static void ZipFile_InspectEntries(const cc_string* path, Zip_SelectEntry selector) {
-	struct ZipEntry entries[64];
 	struct Stream stream;
 	cc_result res;
+	struct ZipEntry entries[64];
+	cc_filepath raw_path;
 
-	res = Stream_OpenFile(&stream, path);
+	Platform_EncodePath(&raw_path, path);
+	res = Stream_OpenPath(&stream, &raw_path);
 	if (res == ReturnCode_FileNotFound) return;
-	if (res) { Logger_SysWarn2(res, "opening", path); return; }
+	if (res) { Logger_IOWarn2(res, "opening", &raw_path); return; }
 
 	res = Zip_Extract(&stream, selector, NULL, 
 						entries, Array_Elems(entries));
-	if (res) Logger_SysWarn2(res, "inspecting", path);
+	if (res) Logger_IOWarn2(res, "inspecting", &raw_path);
 
 	/* No point logging error for closing readonly file */
 	(void)stream.Close(&stream);
@@ -80,7 +82,7 @@ static void ZipFile_InspectEntries(const cc_string* path, Zip_SelectEntry select
 
 static cc_result ZipEntry_ExtractData(struct ResourceZipEntry* e, struct Stream* data, struct ZipEntry* source) {
 	cc_uint32 size = source->UncompressedSize;
-	e->value.data  = Mem_TryAlloc(size, 1);
+	e->value.data  = (cc_uint8*)Mem_TryAlloc(size, 1);
 	e->size        = size;
 
 	if (!e->value.data) return ERR_OUT_OF_MEMORY;
@@ -267,18 +269,20 @@ static cc_result ZipFile_WriteEntries(struct Stream* s, struct ResourceZipEntry*
 
 static void ZipFile_Create(const cc_string* path, struct ResourceZipEntry* entries, int numEntries) {
 	struct Stream s;
+	cc_filepath raw_path;
 	cc_result res;
 
-	res = Stream_CreateFile(&s, path);
+	Platform_EncodePath(&raw_path, path);
+	res = Stream_CreatePath(&s, &raw_path);
 	if (res) {
-		Logger_SysWarn2(res, "creating", path); return;
+		Logger_IOWarn2(res, "creating", &raw_path); return;
 	}
 		
 	res = ZipFile_WriteEntries(&s, entries, numEntries);
-	if (res) Logger_SysWarn2(res, "making", path);
+	if (res) Logger_IOWarn2(res, "making", &raw_path);
 
 	res = s.Close(&s);
-	if (res) Logger_SysWarn2(res, "closing", path);
+	if (res) Logger_IOWarn2(res, "closing", &raw_path);
 }
 
 
@@ -337,7 +341,7 @@ CC_NOINLINE static int MusicAsset_Download(const char* hash) {
 	cc_string url; char urlBuffer[URL_MAX_SIZE];
 
 	String_InitArray(url, urlBuffer);
-	String_Format3(&url, "http://ppcproxy.andreiixe.website/?url=https://resources.download.minecraft.net/%r%r/%c", 
+	String_Format3(&url, "https://resources.download.minecraft.net/%r%r/%c", 
 					&hash[0], &hash[1], hash);
 	return Http_AsyncGetData(&url, 0);
 }
@@ -737,9 +741,9 @@ static cc_result CCTextures_ProcessEntry(const cc_string* path, struct Stream* d
 }
 
 static cc_result CCTextures_ExtractZip(struct HttpRequest* req) {
-	struct ZipEntry entries[64];
 	struct Stream src;
 	cc_result res;
+	struct ZipEntry entries[64];
 
 	Stream_ReadonlyMemory(&src, req->data, req->size);
 	if ((res = Zip_Extract(&src, CCTextures_SelectEntry, CCTextures_ProcessEntry,
@@ -909,10 +913,11 @@ static cc_result ClassicPatcher_ProcessEntry(const cc_string* path, struct Strea
 }
 
 static cc_result ClassicPatcher_ExtractFiles(struct HttpRequest* req) {
-	struct ZipEntry entries[64];
 	struct Stream src;
+	cc_result res;
+	struct ZipEntry entries[64];
 	Stream_ReadonlyMemory(&src, req->data, req->size);
-
+	
 	return Zip_Extract(&src, 
 			ClassicPatcher_SelectEntry, ClassicPatcher_ProcessEntry,
 			entries, Array_Elems(entries));
@@ -1022,8 +1027,8 @@ static cc_result ModernPatcher_ProcessEntry(const cc_string* path, struct Stream
 }
 
 static cc_result ModernPatcher_ExtractFiles(struct HttpRequest* req) {
-	struct ZipEntry entries[64];
 	struct Stream src;
+	struct ZipEntry entries[64];
 	Stream_ReadonlyMemory(&src, req->data, req->size);
 
 	return Zip_Extract(&src, 

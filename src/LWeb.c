@@ -1,5 +1,5 @@
 #include "LWeb.h"
-#ifndef CC_BUILD_WEB
+#ifndef CC_DISABLE_LAUNCHER
 #include "String.h"
 #include "Launcher.h"
 #include "Platform.h"
@@ -99,8 +99,7 @@ static void Json_ConsumeString(struct JsonContext* ctx, cc_string* str) {
 
 		codepoint = (h[0] << 12) | (h[1] << 8) | (h[2] << 4) | h[3];
 		/* don't want control characters in names/software */
-		/* TODO: Convert to CP437.. */
-		if (codepoint >= 32) String_Append(str, codepoint);
+		if (codepoint >= 32) String_Append(str, Convert_CodepointToCP437(codepoint));
 		JsonContext_Consume(ctx, 4);
 	}
 

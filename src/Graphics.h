@@ -66,10 +66,10 @@ CC_VAR extern struct _GfxData {
 	/* Whether graphics context has been created */
 	cc_bool Created;
 	struct Matrix View, Projection;
-	/* Whether the graphics backend supports non power of two textures */
-	cc_bool SupportsNonPowTwoTextures;
+	/* Level of support for non power of two textures */
+	cc_uint8 NonPowTwoTexturesSupport;
 	/* Limitations of the graphics backend, see GFX_LIMIT values */
-	cc_bool Limitations;
+	cc_uint8 Limitations;
 	/* Type of the backend (e.g. OpenGL, Direct3D 9, etc)*/
 	cc_uint8 BackendType;
 	cc_bool __pad;
@@ -85,12 +85,26 @@ CC_VAR extern struct _GfxData {
 	GfxResourceID DefaultIb;
 } Gfx;
 
+/* Backend has no support at all for non power of two textures */
+#define GFX_NONPOW2_NONE   0x00
+/* Backend only supports uploading non power of two textures */
+/* E.g. 64x20 texture may only occupy 64x20 in VRAM, but is addressed as if it was 64x32 */
+#define GFX_NONPOW2_UPLOAD 0x01
+/* Backend fully supports uploading and addressing non power of two textures */
+#define GFX_NONPOW2_FULL   0x02
+
 /* Whether the graphics backend supports U/V that don't occupy whole texture */
 /*   e.g. Saturn, 3D0 systems don't support it */
 #define GFX_LIMIT_NO_UV_SUPPORT   0x01
 /* Whether the graphics backend requires very large quads to be broken */
 /*  up into smaller quads, to reduce fog interpolation artifacts */
 #define GFX_LIMIT_VERTEX_ONLY_FOG 0x02
+/* Whether the graphics backend only supports a small maximum quad size */
+#define GFX_LIMIT_MAX_VERTEX_SIZE 0x04
+/* Whether the graphics backend is minimal (no fog, clouds, sky) */
+#define GFX_LIMIT_MINIMAL         0x08
+/* Whether the graphics backend shouldn't have horizon/border drawn */
+#define GFX_LIMIT_WORLD_ONLY      0x10
 
 extern const cc_string Gfx_LowPerfMessage;
 
@@ -304,7 +318,7 @@ CC_API void* Gfx_LockVb(GfxResourceID vb, VertexFormat fmt, int count);
 CC_API void  Gfx_UnlockVb(GfxResourceID vb);
 
 /* TODO: How to make LockDynamicVb work with OpenGL 1.1 Builder stupidity. */
-#ifdef CC_BUILD_GL11
+#if CC_GFX_BACKEND == CC_GFX_BACKEND_GL11
 /* Special case of Gfx_Create/LockVb for building chunks in Builder.c */
 GfxResourceID Gfx_CreateVb2(void* vertices, VertexFormat fmt, int count);
 #endif
@@ -345,9 +359,14 @@ USAGE NOTES:
 	  is setup to draw groups of 2 triangles from 4 vertices (1 quad)
 */
 
+/* Optional draw hints used by some rendering backends to speed up 2D drawing */
 typedef enum DrawHints_ {
 	DRAW_HINT_NONE   = 0,
-	DRAW_HINT_SPRITE = 9,
+	/* Vertices are 2D rects with possible texture scaling and/or repeating */
+	DRAW_HINT_SPRITE = 0x02,
+	/* Vertices are 2D rects with no texture scaling or repeating */
+	/* Typically this is only used for textures purely containing text */
+	DRAW_HINT_RECT   = 0x04,
 } DrawHints;
 
 /* Sets the format of the rendered vertices */
@@ -466,6 +485,13 @@ void Gfx_Draw2DGradient(int x, int y, int width, int height, PackedCol top, Pack
 void Gfx_Draw2DTexture(const struct Texture* tex, PackedCol color);
 /* Fills out the vertices for rendering a 2D coloured texture */
 void Gfx_Make2DQuad(const struct Texture* tex, PackedCol color, struct VertexTextured** vertices);
+
+/* Builds 4 vertices for a 2D flat coloured rectangle */
+struct VertexColoured* Gfx_Build2DFlat(int x, int y, int width, int height, 
+										PackedCol color, struct VertexColoured* v);
+/* Builds 4 vertices for a 2D flat vertical gradient rectangle */
+struct VertexColoured* Gfx_Build2DGradient(int x, int y, int width, int height, 
+											PackedCol top, PackedCol bottom, struct VertexColoured* v);
 
 /* Switches state to be suitable for drawing 2D graphics */
 /* NOTE: This means turning off fog/depth test, changing matrices, etc.*/

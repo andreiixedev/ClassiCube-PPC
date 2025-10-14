@@ -8,7 +8,7 @@ Abstracts platform specific memory management, I/O, etc
 Copyright 2014-2025 ClassiCube | Licensed under BSD-3
 */
 
-#if defined CC_BUILD_WIN || defined CC_BUILD_XBOX
+#if defined CC_BUILD_WIN || defined CC_BUILD_WINCE || defined CC_BUILD_XBOX
 #define _NL "\r\n"
 #define NATIVE_STR_LEN 300
 #else
@@ -18,25 +18,29 @@ Copyright 2014-2025 ClassiCube | Licensed under BSD-3
 
 /* Suffix added to app name sent to the server */
 extern const char* Platform_AppNameSuffix;
+void* TempMem_Alloc(int size);
 
-#if defined CC_BUILD_WIN
-typedef struct cc_winstring_ {
+#if defined CC_BUILD_WIN || defined CC_BUILD_WINCE
+typedef struct cc_filepath_ {
 	cc_unichar uni[NATIVE_STR_LEN]; /* String represented using UTF16 format */
 	char ansi[NATIVE_STR_LEN]; /* String lossily represented using ANSI format */
 } cc_winstring;
 
 /* Encodes a string into the platform native string format */
 void Platform_EncodeString(cc_winstring* dst, const cc_string* src);
-#endif
 
-#ifdef CC_BUILD_WIN
-typedef cc_winstring cc_filepath;
+typedef struct cc_filepath_ cc_filepath;
 #else
 typedef struct cc_filepath_ { char buffer[NATIVE_STR_LEN]; } cc_filepath;
 #define FILEPATH_RAW(raw) ((cc_filepath*)raw)
 #endif
+
 /* Converts the provided path into a platform native file path */
 void Platform_EncodePath(cc_filepath* dst, const cc_string* src);
+/* Best attempts to convert the native file path into a string */
+/* (e.g. a native file path might be unicode, but not all */
+/*  unicode characters can be represented in code page 437) */
+void Platform_DecodePath(cc_string* dst, const cc_filepath* path);
 
 /* Initialises the platform specific state. */
 void Platform_Init(void);
@@ -64,7 +68,14 @@ cc_result Platform_GetEntropy(void* data, int len);
 *#########################################################################################################################*/
 /* Whether the launcher and game must both be run in the same process */
 /*  (e.g. can't start a separate process on Mobile or Consoles) */
-extern cc_bool Platform_SingleProcess;
+#define PLAT_FLAG_SINGLE_PROCESS 0x01
+/* Whether button in the launcher should be available to exit the app */
+/*  (e.g. necessary in MS DOS, game consoles ) */
+#define PLAT_FLAG_APP_EXIT       0x02
+
+/* Platform specific runtime behaviour flags (See PLAT_FLAG members) */
+extern cc_uint8 Platform_Flags;
+#define Platform_IsSingleProcess() (Platform_Flags & PLAT_FLAG_SINGLE_PROCESS)
 
 /* Starts the game with the given arguments. */
 CC_API cc_result Process_StartGame2(const cc_string* args, int numArgs);
@@ -91,7 +102,7 @@ extern const struct UpdaterInfo {
 	/* Number of compiled builds available for this platform */
 	int numBuilds;
 	/* Metadata for the compiled builds available for this platform */
-	const struct UpdaterBuild builds[2]; // TODO name and path
+	const struct UpdaterBuild builds[2]; /* TODO name and path */
 } Updater_Info;
 /* Whether updating is supported by the platform */
 extern cc_bool Updater_Supported;
@@ -237,7 +248,7 @@ int Stopwatch_ElapsedMS(cc_uint64 beg, cc_uint64 end);
 /*########################################################################################################################*
 *---------------------------------------------------------File I/O--------------------------------------------------------*
 *#########################################################################################################################*/
-#if defined CC_BUILD_WIN || defined CC_BUILD_XBOX
+#if defined CC_BUILD_WIN || defined CC_BUILD_WINCE || defined CC_BUILD_XBOX
 typedef void* cc_file;
 #else
 typedef int cc_file;
@@ -338,7 +349,7 @@ void Platform_LoadSysFonts(void);
 /*########################################################################################################################*
 *----------------------------------------------------------Sockets--------------------------------------------------------*
 *#########################################################################################################################*/
-#if defined CC_BUILD_WIN || defined CC_BUILD_XBOX
+#if defined CC_BUILD_WIN || defined CC_BUILD_WINCE || defined CC_BUILD_XBOX
 typedef cc_uintptr cc_socket;
 #else
 typedef int cc_socket;
