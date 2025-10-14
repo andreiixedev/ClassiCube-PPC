@@ -617,19 +617,23 @@ cc_result TexturePack_ExtractCurrent(cc_bool forceReload) {
 	return res;
 }
 
-/* Extracts and updates cache for the downloaded texture pack */
-static void ApplyDownloaded(struct HttpRequest* item) {
-	struct Stream mem;
-	cc_string url;
 
-	url = String_FromRawArray(item->url);
-	if (!Platform_ReadonlyFilesystem) UpdateCache(item);
-	/* Took too long to download and is no longer active texture pack */
-	if (!String_Equals(&TexturePack_Url, &url)) return;
+#include "ProxyPPC.h" /*Import for proxyPPC.h (to add proxy)*/
 
-	Stream_ReadonlyMemory(&mem, item->data, item->size);
-	ExtractFrom(&mem, &url);
-	usingDefault = false;
+static void DownloadAsync(cc_string* url) {
+    cc_string etag = String_Empty;
+    cc_string time = String_Empty;
+
+    /*Proxy From ProxyPPC.h*/
+    ApplyProxyPPC(url);
+
+    if (IsCached(url)) {
+        time = GetCachedLastModified(url);
+        etag = GetCachedETag(url);
+    }
+
+    Http_TryCancel(TexturePack_ReqID);
+    TexturePack_ReqID = Http_AsyncGetDataEx(url, HTTP_FLAG_PRIORITY, &time, &etag, NULL);
 }
 
 void TexturePack_CheckPending(void) {

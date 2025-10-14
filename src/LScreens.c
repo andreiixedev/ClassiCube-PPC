@@ -1014,7 +1014,7 @@ void MainScreen_SetActive(void) {
 	s->Activated     = MainScreen_Activated;
 	s->LoadState     = MainScreen_Load;
 	s->Tick          = MainScreen_Tick;
-	s->title         = "ClassiCube";
+	s->title         = "ClassiCube-PPC";
 
 #ifdef CC_BUILD_NETWORKING
 	s->onEnterWidget = (struct LWidget*)&s->btnLogin;
@@ -1449,16 +1449,6 @@ static void SettingsScreen_ShowEmpty(struct LCheckbox* w) {
 	Options_SetBool(LOPT_SHOW_EMPTY, w->value);
 }
 
-static void SettingsScreen_DPIScaling(struct LCheckbox* w) {
-#if defined CC_BUILD_WIN
-	DisplayInfo.DPIScaling = w->value;
-	Options_SetBool(OPT_DPI_SCALING, w->value);
-	Window_ShowDialog("Restart required", "You must restart ClassiCube before display scaling takes effect");
-#else
-	Window_ShowDialog("Restart required", "Display scaling is currently only supported on Windows");
-#endif
-}
-
 static void SettingsScreen_AddWidgets(struct SettingsScreen* s) {
 	LLine_Add(s,   &s->sep, 380, set_sep);
 	LButton_Add(s, &s->btnMode, 110, 35, "Mode", 
@@ -1481,8 +1471,6 @@ static void SettingsScreen_AddWidgets(struct SettingsScreen* s) {
 
 	LCheckbox_Add(s, &s->cbEmpty, "Show empty servers in list", 
 				SettingsScreen_ShowEmpty,  set_cbEmpty);
-	LCheckbox_Add(s, &s->cbScale, "Use display scaling", 
-				SettingsScreen_DPIScaling, set_cbScale);
 	LButton_Add(s,   &s->btnBack, 80, 35, "Back", 
 				SwitchToMain, set_btnBack);
 }
@@ -1587,8 +1575,8 @@ void ThemesScreen_SetActive(void) {
 static struct UpdatesScreen {
 	LScreen_Layout
 	struct LLine seps[2];
-	struct LButton btnRel[2], btnDev[2], btnBack;
-	struct LLabel  lblYour, lblRel, lblDev, lblInfo, lblStatus;
+	struct LButton btnRel[2], btnBack;
+	struct LLabel  lblYour, lblRel, lblInfo, lblStatus;
 	int buildProgress, buildIndex;
 	cc_bool pendingFetch, release;
 } UpdatesScreen CC_BIG_VAR;
@@ -1601,19 +1589,15 @@ LAYOUTS upd_seps0[]   = { { ANCHOR_CENTRE,  0 }, { ANCHOR_CENTRE, -100 } };
 LAYOUTS upd_seps1[]   = { { ANCHOR_CENTRE,  0 }, { ANCHOR_CENTRE,   -5 } };
 
 LAYOUTS upd_lblRel[]    = { { ANCHOR_CENTRE, -20 }, { ANCHOR_CENTRE, -75 } };
-LAYOUTS upd_lblDev[]    = { { ANCHOR_CENTRE, -30 }, { ANCHOR_CENTRE,  20 } };
 LAYOUTS upd_lblInfo[]   = { { ANCHOR_CENTRE,   0 }, { ANCHOR_CENTRE, 105 } };
 LAYOUTS upd_lblStatus[] = { { ANCHOR_CENTRE,   0 }, { ANCHOR_CENTRE, 130 } };
 LAYOUTS upd_btnBack[]   = { { ANCHOR_CENTRE,   0 }, { ANCHOR_CENTRE, 170 } };
 
 /* Update button layouts when 1 build */
 LAYOUTS upd_btnRel0_1[] = { { ANCHOR_CENTRE,   0 }, { ANCHOR_CENTRE, -40 } };
-LAYOUTS upd_btnDev0_1[] = { { ANCHOR_CENTRE,   0 }, { ANCHOR_CENTRE,  55 } };
 /* Update button layouts when 2 builds */
 LAYOUTS upd_btnRel0_2[] = { { ANCHOR_CENTRE, -80 }, { ANCHOR_CENTRE, -40 } };
 LAYOUTS upd_btnRel1_2[] = { { ANCHOR_CENTRE,  80 }, { ANCHOR_CENTRE, -40 } };
-LAYOUTS upd_btnDev0_2[] = { { ANCHOR_CENTRE, -80 }, { ANCHOR_CENTRE,  55 } };
-LAYOUTS upd_btnDev1_2[] = { { ANCHOR_CENTRE,  80 }, { ANCHOR_CENTRE,  55 } };
 
 
 CC_NOINLINE static void UpdatesScreen_FormatTime(cc_string* str, int delta) {
@@ -1659,14 +1643,11 @@ static void UpdatesScreen_Format(struct LLabel* lbl, const char* prefix, cc_uint
 
 static void UpdatesScreen_FormatBoth(struct UpdatesScreen* s) {
 	UpdatesScreen_Format(&s->lblRel, "Latest release: ",   CheckUpdateTask.relTimestamp);
-	UpdatesScreen_Format(&s->lblDev, "Latest dev build: ", CheckUpdateTask.devTimestamp);
 }
 
 static void UpdatesScreen_UpdateHeader(struct UpdatesScreen* s, cc_string* str) {
-	const char* message = s->release ? "release " : "dev build ";
-
-	String_Format2(str, "&eFetching latest %c%c", 
-					message, Updater_Info.builds[s->buildIndex].name);
+	const char* message;
+	if ( s->release) message = "&eFetching latest release ";;
 }
 
 static void UpdatesScreen_DoFetch(struct UpdatesScreen* s) {
@@ -1744,8 +1725,6 @@ static void UpdatesScreen_FetchTick(struct UpdatesScreen* s) {
 
 static void UpdatesScreen_Rel_0(void* w) { UpdatesScreen_Get(true,  0); }
 static void UpdatesScreen_Rel_1(void* w) { UpdatesScreen_Get(true,  1); }
-static void UpdatesScreen_Dev_0(void* w) { UpdatesScreen_Get(false, 0); }
-static void UpdatesScreen_Dev_1(void* w) { UpdatesScreen_Get(false, 1); }
 
 static void UpdatesScreen_AddWidgets(struct UpdatesScreen* s) {
 	int builds = Updater_Info.numBuilds;
@@ -1755,7 +1734,6 @@ static void UpdatesScreen_AddWidgets(struct UpdatesScreen* s) {
 	LLabel_Add(s,  &s->lblYour, "Your build: (unknown)", upd_lblYour);
 
 	LLabel_Add(s,  &s->lblRel, "Latest release: Checking..",   upd_lblRel);
-	LLabel_Add(s,  &s->lblDev, "Latest dev build: Checking..", upd_lblDev);
 	LLabel_Add(s,  &s->lblStatus, "",              upd_lblStatus);
 	LLabel_Add(s,  &s->lblInfo, Updater_Info.info, upd_lblInfo);
 	LButton_Add(s, &s->btnBack, 80, 35, "Back", 
@@ -1764,15 +1742,11 @@ static void UpdatesScreen_AddWidgets(struct UpdatesScreen* s) {
 	if (builds >= 1) {
 		LButton_Add(s, &s->btnRel[0], 130, 35, Updater_Info.builds[0].name,
 							UpdatesScreen_Rel_0, builds == 1 ? upd_btnRel0_1 : upd_btnRel0_2);
-		LButton_Add(s, &s->btnDev[0], 130, 35, Updater_Info.builds[0].name,
-							UpdatesScreen_Dev_0, builds == 1 ? upd_btnDev0_1 : upd_btnDev0_2);
 	}
 
 	if (builds >= 2) {
 		LButton_Add(s, &s->btnRel[1], 130, 35, Updater_Info.builds[1].name, 
 					UpdatesScreen_Rel_1, upd_btnRel1_2);
-		LButton_Add(s, &s->btnDev[1], 130, 35, Updater_Info.builds[1].name, 
-					UpdatesScreen_Dev_1, upd_btnDev1_2);
 	}
 }
 
