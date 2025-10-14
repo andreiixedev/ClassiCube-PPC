@@ -5,10 +5,10 @@ CC_BEGIN_HEADER
 
 /* 
 Abstracts platform specific memory management, I/O, etc
-Copyright 2014-2025 ClassiCube | Licensed under BSD-3
+Copyright 2014-2023 ClassiCube | Licensed under BSD-3
 */
 
-#if defined CC_BUILD_WIN || defined CC_BUILD_WINCE || defined CC_BUILD_XBOX
+#if defined CC_BUILD_WIN || defined CC_BUILD_XBOX
 #define _NL "\r\n"
 #define NATIVE_STR_LEN 300
 #else
@@ -18,29 +18,26 @@ Copyright 2014-2025 ClassiCube | Licensed under BSD-3
 
 /* Suffix added to app name sent to the server */
 extern const char* Platform_AppNameSuffix;
-void* TempMem_Alloc(int size);
 
-#if defined CC_BUILD_WIN || defined CC_BUILD_WINCE
-typedef struct cc_filepath_ {
+#ifdef CC_BUILD_WIN
+typedef struct cc_winstring_ {
 	cc_unichar uni[NATIVE_STR_LEN]; /* String represented using UTF16 format */
 	char ansi[NATIVE_STR_LEN]; /* String lossily represented using ANSI format */
 } cc_winstring;
-
 /* Encodes a string into the platform native string format */
 void Platform_EncodeString(cc_winstring* dst, const cc_string* src);
 
-typedef struct cc_filepath_ cc_filepath;
+cc_bool Platform_DescribeErrorExt(cc_result res, cc_string* dst, void* lib);
+#endif
+
+#ifdef CC_BUILD_WIN
+typedef cc_winstring cc_filepath;
 #else
 typedef struct cc_filepath_ { char buffer[NATIVE_STR_LEN]; } cc_filepath;
 #define FILEPATH_RAW(raw) ((cc_filepath*)raw)
 #endif
-
 /* Converts the provided path into a platform native file path */
 void Platform_EncodePath(cc_filepath* dst, const cc_string* src);
-/* Best attempts to convert the native file path into a string */
-/* (e.g. a native file path might be unicode, but not all */
-/*  unicode characters can be represented in code page 437) */
-void Platform_DecodePath(cc_string* dst, const cc_filepath* path);
 
 /* Initialises the platform specific state. */
 void Platform_Init(void);
@@ -68,14 +65,7 @@ cc_result Platform_GetEntropy(void* data, int len);
 *#########################################################################################################################*/
 /* Whether the launcher and game must both be run in the same process */
 /*  (e.g. can't start a separate process on Mobile or Consoles) */
-#define PLAT_FLAG_SINGLE_PROCESS 0x01
-/* Whether button in the launcher should be available to exit the app */
-/*  (e.g. necessary in MS DOS, game consoles ) */
-#define PLAT_FLAG_APP_EXIT       0x02
-
-/* Platform specific runtime behaviour flags (See PLAT_FLAG members) */
-extern cc_uint8 Platform_Flags;
-#define Platform_IsSingleProcess() (Platform_Flags & PLAT_FLAG_SINGLE_PROCESS)
+extern cc_bool Platform_SingleProcess;
 
 /* Starts the game with the given arguments. */
 CC_API cc_result Process_StartGame2(const cc_string* args, int numArgs);
@@ -102,7 +92,7 @@ extern const struct UpdaterInfo {
 	/* Number of compiled builds available for this platform */
 	int numBuilds;
 	/* Metadata for the compiled builds available for this platform */
-	const struct UpdaterBuild builds[2]; /* TODO name and path */
+	const struct UpdaterBuild builds[2]; // TODO name and path
 } Updater_Info;
 /* Whether updating is supported by the platform */
 extern cc_bool Updater_Supported;
@@ -135,42 +125,22 @@ CC_API cc_bool DynamicLib_DescribeError(cc_string* dst);
 
 /* The default file extension used for dynamic libraries on this platform. */
 extern const cc_string DynamicLib_Ext;
-CC_API cc_result DynamicLib_Load(const cc_string* path, void** lib); /* OBSOLETE */
-CC_API cc_result DynamicLib_Get(void* lib, const char* name, void** symbol); /* OBSOLETE */
-
 #define DYNAMICLIB_QUOTE(x) #x
-#define DynamicLib_ReqSym(sym) { DYNAMICLIB_QUOTE(sym), (void**)&_ ## sym, true  }
-#define DynamicLib_OptSym(sym) { DYNAMICLIB_QUOTE(sym), (void**)&_ ## sym, false }
-
-#define DynamicLib_ReqSym2(name, sym) { name,           (void**)&_ ## sym, true  }
-#define DynamicLib_OptSym2(name, sym) { name,           (void**)&_ ## sym, false }
-
+#define DynamicLib_Sym(sym) { DYNAMICLIB_QUOTE(sym), (void**)&_ ## sym }
+#define DynamicLib_Sym2(name, sym) { name,           (void**)&_ ## sym }
 #if defined CC_BUILD_OS2
-#define DynamicLib_ReqSymC(sym) { DYNAMICLIB_QUOTE(_ ## sym), (void**)&_ ## sym, true  }
-#define DynamicLib_OptSymC(sym) { DYNAMICLIB_QUOTE(_ ## sym), (void**)&_ ## sym, false }
+#define DynamicLib_SymC(sym) { DYNAMICLIB_QUOTE(_ ## sym), (void**)&_ ## sym }
 #endif
 
+CC_API cc_result DynamicLib_Load(const cc_string* path, void** lib); /* OBSOLETE */
+CC_API cc_result DynamicLib_Get(void* lib, const char* name, void** symbol); /* OBSOLETE */
 /* Contains a name and a pointer to variable that will hold the loaded symbol */
 /*  static int (APIENTRY *_myGetError)(void); --- (for example) */
-/*  static struct DynamicLibSym sym = { "myGetError", (void**)&_myGetError, true }; */
-struct DynamicLibSym { const char* name; void** symAddr; cc_bool required; };
+/*  static struct DynamicLibSym sym = { "myGetError", (void**)&_myGetError }; */
+struct DynamicLibSym { const char* name; void** symAddr; };
 /* Loads all symbols using DynamicLib_Get2 in the given list */
-/* Returns true if all required symbols were successfully retrieved */
+/* Returns true if all symbols were successfully retrieved */
 cc_bool DynamicLib_LoadAll(const cc_string* path, const struct DynamicLibSym* syms, int count, void** lib);
-
-
-/*########################################################################################################################*
-*-------------------------------------------------------Crash handling----------------------------------------------------*
-*#########################################################################################################################*/
-/* Attempts to install a callback for the operating system's unhandled error event/signal. */
-/* This is used to attempt to log some information about a crash due to invalid memory read, etc. */
-void CrashHandler_Install(void);
-/* Displays a message box with raw_msg body, logs state to disc, then immediately terminates/quits. */
-/* Typically called when an unrecoverable error occurs. (e.g. out of memory) */
-#define Process_Abort(msg) Process_Abort2(0, msg);
-/* Displays a message box with raw_msg body, logs state to disc, then immediately terminates/quits. */
-/* Typically called when an unrecoverable error occurs. (e.g. out of memory) */
-CC_NOINLINE void Process_Abort2(cc_result result, const char* raw_msg);
 
 
 /*########################################################################################################################*
@@ -230,12 +200,12 @@ cc_bool Platform_DescribeError(cc_result res, cc_string* dst);
 *#########################################################################################################################*/
 /* Number of seconds since 01/01/0001 to start of unix time. */
 #define UNIX_EPOCH_SECONDS 62135596800ULL
-struct cc_datetime;
+struct DateTime;
 
 /* Returns the current UTC time, as number of seconds since 1/1/0001 */
 CC_API TimeMS DateTime_CurrentUTC(void);
 /* Returns the current local Time. */
-CC_API void DateTime_CurrentLocal(struct cc_datetime* t);
+CC_API void DateTime_CurrentLocal(struct DateTime* t);
 /* Takes a platform-specific stopwatch measurement. */
 /* NOTE: The value returned is platform-specific - do NOT try to interpret the value. */
 CC_API cc_uint64 Stopwatch_Measure(void);
@@ -248,7 +218,7 @@ int Stopwatch_ElapsedMS(cc_uint64 beg, cc_uint64 end);
 /*########################################################################################################################*
 *---------------------------------------------------------File I/O--------------------------------------------------------*
 *#########################################################################################################################*/
-#if defined CC_BUILD_WIN || defined CC_BUILD_WINCE || defined CC_BUILD_XBOX
+#if defined CC_BUILD_WIN || defined CC_BUILD_XBOX
 typedef void* cc_file;
 #else
 typedef int cc_file;
@@ -349,7 +319,7 @@ void Platform_LoadSysFonts(void);
 /*########################################################################################################################*
 *----------------------------------------------------------Sockets--------------------------------------------------------*
 *#########################################################################################################################*/
-#if defined CC_BUILD_WIN || defined CC_BUILD_WINCE || defined CC_BUILD_XBOX
+#if defined CC_BUILD_WIN || defined CC_BUILD_XBOX
 typedef cc_uintptr cc_socket;
 #else
 typedef int cc_socket;
@@ -376,8 +346,6 @@ extern const cc_result ReturnCode_SocketDropped;
 cc_result Socket_CheckReadable(cc_socket s, cc_bool* readable);
 /* Checks if the given socket is currently writable (i.e. has finished connecting) */
 cc_result Socket_CheckWritable(cc_socket s, cc_bool* writable);
-/* Retrieves the most recent async error code (typically from connect) */
-cc_result Socket_GetLastError(cc_socket s);
 /* If the input represents an IP address, then parses the input into a single IP address */
 /* Otherwise, attempts to resolve the input via DNS into one or more IP addresses */
 cc_result Socket_ParseAddress(const cc_string* address, int port, cc_sockaddr* addrs, int* numValidAddrs);

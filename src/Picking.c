@@ -8,7 +8,6 @@
 #include "Block.h"
 #include "Logger.h"
 #include "Camera.h"
-#include "Platform.h"
 
 static float pickedPos_dist;
 static void TestAxis(struct RayTracer* t, float dAxis, Face fAxis) {
@@ -192,7 +191,7 @@ static cc_bool RayTrace(struct RayTracer* t, const Vec3* origin, const Vec3* dir
 		RayTracer_Step(t);
 	}
 
-	Process_Abort("Something went wrong, did over 25,000 iterations in Picking_RayTrace()");
+	Logger_Abort("Something went wrong, did over 25,000 iterations in Picking_RayTrace()");
 	return false;
 }
 

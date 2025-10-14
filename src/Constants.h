@@ -2,20 +2,20 @@
 #define CC_CONSTANTS_H
 /* 
 Defines useful constants
-Copyright 2014-2025 ClassiCube | Licensed under BSD-3
+Copyright 2014-2023 ClassiCube | Licensed under BSD-3
 */
 
 #define GAME_MAX_CMDARGS 5
-#define GAME_APP_VER "1.3.7rev6-PPC"
+#define GAME_APP_VER "1.3.7"
 #define GAME_API_VER 1
 
 #if defined CC_BUILD_WEB
 #define GAME_APP_ALT   "ClassiCube 1.3.7 web mobile"
 #define GAME_APP_NAME  "ClassiCube 1.3.7 web"
-#define GAME_APP_TITLE "ClassiCube-PPC"
+#define GAME_APP_TITLE "ClassiCube"
 #else
-#define GAME_APP_NAME  "ClassiCube 1.3.7-PPC"
-#define GAME_APP_TITLE "ClassiCube 1.3.7-PPC"
+#define GAME_APP_NAME  "ClassiCube 1.3.7"
+#define GAME_APP_TITLE "ClassiCube 1.3.7"
 #endif
 
 /* Max number of characters strings can have. */
@@ -68,7 +68,7 @@ enum SKIN_TYPE { SKIN_64x32, SKIN_64x64, SKIN_64x64_SLIM, SKIN_INVALID = 0xF0 };
 #define Int32_MaxValue  ((cc_int32)2147483647L)
 
 #define SKINS_SERVER    "http://cdn.classicube.net/skin"
-#define UPDATES_SERVER  "https://cdn.classicube.net/client"
+#define UPDATES_SERVER  "http://cdn.classicube.net/client"
 #define SERVICES_SERVER "https://www.classicube.net/api"
 #define RESOURCE_SERVER "http://static.classicube.net"
 /* Webpage where users can register for a new account */

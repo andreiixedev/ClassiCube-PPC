@@ -28,7 +28,7 @@
 
 static cc_bool input_buttonsDown[3];
 static int input_pickingId = -1;
-static float input_deltaAcc;
+static double input_lastClick;
 static float input_fovIndex = -1.0f;
 #ifdef CC_BUILD_WEB
 static cc_bool suppressEscape;
@@ -88,8 +88,8 @@ const cc_uint8 Hotkeys_LWJGL[256] = {
 	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
 	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
 };
-struct HotkeyData CC_BIG_VAR HotkeysList[HOTKEYS_MAX_COUNT];
-struct StringsBuffer CC_BIG_VAR HotkeysText;
+struct HotkeyData HotkeysList[HOTKEYS_MAX_COUNT];
+struct StringsBuffer HotkeysText;
 
 static void Hotkeys_QuickSort(int left, int right) {
 	struct HotkeyData* keys = HotkeysList; struct HotkeyData key;
@@ -273,7 +273,7 @@ static void MouseStateUpdate(int button, cc_bool pressed) {
 }
 
 static void MouseStatePress(int button) {
-	input_deltaAcc  = 0;
+	input_lastClick = Game.Time;
 	input_pickingId = -1;
 	MouseStateUpdate(button, true);
 }
@@ -285,7 +285,7 @@ static void MouseStateRelease(int button) {
 }
 
 void InputHandler_OnScreensChanged(void) {
-	input_deltaAcc  = 0;
+	input_lastClick = Game.Time;
 	input_pickingId = -1;
 	if (!Gui.InputGrab) return;
 
@@ -456,18 +456,19 @@ static void InputHandler_PickBlock(void) {
 #ifdef CC_BUILD_TOUCH
 static cc_bool AnyBlockTouches(void);
 #endif
-void InputHandler_Tick(float delta) {
+void InputHandler_Tick(void) {
 	cc_bool left, middle, right;
+	double now, delta;
 	
-	input_deltaAcc += delta;
 	if (Gui.InputGrab) return;
+	now   = Game.Time;
+	delta = now - input_lastClick;
 
-	/* Only tick 4 times per second when held down */
-	if (input_deltaAcc < 0.2495f) return;
+	if (delta < 0.2495) return; /* 4 times per second */
 	/* NOTE: 0.2495 is used instead of 0.25 to produce delta time */
 	/*  values slightly closer to the old code which measured */
 	/*  elapsed time using DateTime_CurrentUTC_MS() instead */
-	input_deltaAcc  = 0;
+	input_lastClick = now;
 
 	left   = input_buttonsDown[MOUSE_LEFT];
 	middle = input_buttonsDown[MOUSE_MIDDLE];
@@ -783,11 +784,12 @@ cc_bool KeyBind_IsPressed(InputBind binding) { return Bind_IsTriggered[binding];
 static void OnPointerDown(void* obj, int idx) {
 	struct Screen* s;
 	int i, x, y, mask;
+	if (Pointers[idx].DownHook) { Pointers[idx].DownHook(idx); return; }
 
-	/* Always reset held time, otherwise quickly tapping */
+	/* Always set last click time, otherwise quickly tapping */
 	/* sometimes triggers a 'delete' in InputHandler_Tick, */
 	/* and then another 'delete' in CheckBlockTap. */
-	input_deltaAcc = 0;
+	input_lastClick = Game.Time;
 
 #ifdef CC_BUILD_TOUCH
 	if (Input_TouchMode && !(touches[idx].type & TOUCH_TYPE_GUI)) return;
@@ -820,6 +822,7 @@ static void OnPointerDown(void* obj, int idx) {
 static void OnPointerUp(void* obj, int idx) {
 	struct Screen* s;
 	int i, x, y;
+	if (Pointers[idx].UpHook) { Pointers[idx].UpHook(idx); return; }
 
 #ifdef CC_BUILD_TOUCH
 	CheckBlockTap(idx);
@@ -838,7 +841,7 @@ static void OnInputDown(void* obj, int key, cc_bool was, struct InputDevice* dev
 	struct Screen* s;
 	cc_bool triggered;
 	int i;
-	if (Input.DownHook && Input.DownHook(key, device)) return;
+	if (Input.DownHook) { Input.DownHook(key, device); return; }
 
 #ifndef CC_BUILD_WEB
 	if (key == device->escapeButton && (s = Gui_GetClosable())) {

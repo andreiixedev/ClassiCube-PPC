@@ -434,8 +434,6 @@ public class MainActivity extends Activity
 			view.setOnGenericMotionListener(listener);
 		} catch (Exception ex) {
 			// Unsupported on android 12
-		} catch (NoClassDefFoundError ex) {
-			// Unsupported on android 12
 		}
 	}
 	

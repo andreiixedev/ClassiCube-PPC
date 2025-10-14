@@ -2,7 +2,7 @@
 #define CC_ERRORS_H
 /*
 Provides a list list of internal ClassiCube errors
-Copyright 2014-2025 ClassiCube | Licensed under BSD-3
+Copyright 2014-2023 ClassiCube | Licensed under BSD-3
 */
 
 /* NOTE: When adding errors, remember to keep Logger.c up to date! */
@@ -138,6 +138,5 @@ enum CC_ERRORS {
 	SSL_ERR_CONTEXT_DEAD = 0xCCDED070UL, /* Server shutdown the SSL context and it must be recreated */
 	PNG_ERR_16BITSAMPLES = 0xCCDED071UL, /* Image uses 16 bit samples, which is unimplemented */
 	ERR_NO_NETWORKING    = 0xCCDED072UL, /* No working network connection */
-	ERR_NON_WRITABLE_FS  = 0xCCDED073UL, /* No writable filesystem detected */
 };
 #endif

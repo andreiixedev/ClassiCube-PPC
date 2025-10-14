@@ -38,8 +38,6 @@ typedef struct _WINDATA {
 #endif
 
 
-static void SetGLAttributes();
-
 static void RefreshWindowBounds(void) {
 	SDL_GetWindowSize(win_handle, &Window_Main.Width, &Window_Main.Height);
 }
@@ -51,7 +49,7 @@ static void Window_SDLFail(const char* place) {
 
 	String_Format2(&str, "Error when %c: %c", place, SDL_GetError());
 	str.buffer[str.length] = '\0';
-	Process_Abort(str.buffer);
+	Logger_Abort(str.buffer);
 }
 
 void Window_PreInit(void) {
@@ -74,6 +72,7 @@ void Window_Init(void) {
 void Window_Free(void) { }
 
 
+#ifdef CC_BUILD_ICON
 /* See misc/sdl/sdl_icon_gen.cs for how to generate this file */
 #include "../misc/sdl/CCIcon_SDL.h"
 
@@ -82,6 +81,9 @@ static void ApplyIcon(void) {
 													0x00FF0000, 0x0000FF00, 0x000000FF, 0xFF000000);
 	SDL_SetWindowIcon(win_handle, surface);
 }
+#else
+static void ApplyIcon(void) { }
+#endif
 
 static void DoCreateWindow(int width, int height, int flags) {
 	win_handle = SDL_CreateWindow(NULL, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, width, height, 
@@ -101,10 +103,7 @@ static void DoCreateWindow(int width, int height, int flags) {
 
 void Window_Create2D(int width, int height) { DoCreateWindow(width, height, 0); }
 #if CC_GFX_BACKEND_IS_GL()
-void Window_Create3D(int width, int height) {
-	SetGLAttributes();
-	DoCreateWindow(width, height, SDL_WINDOW_OPENGL);
-}
+void Window_Create3D(int width, int height) { DoCreateWindow(width, height, SDL_WINDOW_OPENGL); }
 #else
 void Window_Create3D(int width, int height) { DoCreateWindow(width, height, 0); }
 #endif
@@ -145,10 +144,7 @@ int Window_GetWindowState(void) {
 cc_result Window_EnterFullscreen(void) {
 	return SDL_SetWindowFullscreen(win_handle, SDL_WINDOW_FULLSCREEN_DESKTOP);
 }
-
-cc_result Window_ExitFullscreen(void) { 
-	return SDL_SetWindowFullscreen(win_handle, 0);
-}
+cc_result Window_ExitFullscreen(void) { SDL_RestoreWindow(win_handle); return 0; }
 
 int Window_IsObscured(void) { return 0; }
 
@@ -542,7 +538,7 @@ void Gamepads_Process(float delta) {
 #if CC_GFX_BACKEND_IS_GL()
 static SDL_GLContext win_ctx;
 
-void SetGLAttributes(void) {
+void GLContext_Create(void) {
 	struct GraphicsMode mode;
 	InitGraphicsMode(&mode);
 	SDL_GL_SetAttribute(SDL_GL_RED_SIZE,   mode.R);
@@ -558,9 +554,7 @@ void SetGLAttributes(void) {
 	SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 2);
 	SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);
 #endif
-}
 
-void GLContext_Create(void) {
 	win_ctx = SDL_GL_CreateContext(win_handle);
 	if (!win_ctx) Window_SDLFail("creating OpenGL context");
 }

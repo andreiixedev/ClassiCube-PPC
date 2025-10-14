@@ -49,7 +49,7 @@ struct Builder1DPart {
 
 /* Part builder data, for both normal and translucent parts.
 The first ATLAS1D_MAX_ATLASES parts are for normal parts, remainder are for translucent parts. */
-static CC_BIG_VAR struct Builder1DPart Builder_Parts[ATLAS1D_MAX_ATLASES * 2];
+static struct Builder1DPart Builder_Parts[ATLAS1D_MAX_ATLASES * 2];
 static struct VertexTextured* Builder_Vertices;
 
 static int Builder1DPart_VerticesCount(struct Builder1DPart* part) {
@@ -102,7 +102,7 @@ static void AddVertices(BlockID block, Face face) {
 	part->faces.count[face] += 4;
 }
 
-#if CC_GFX_BACKEND == CC_GFX_BACKEND_GL11
+#ifdef CC_BUILD_GL11
 static void BuildPartVbs(struct ChunkPartInfo* info) {
 	/* Sprites vertices are stored before chunk face sides */
 	int i, count, offset = info->offset + info->spriteCount;
@@ -263,6 +263,7 @@ for (yy = -1; yy < 17; ++yy) {\
 
 static cc_bool ReadChunkData(int x1, int y1, int z1, cc_bool* outAllAir) {
 	BlockRaw* blocks = World.Blocks;
+	BlockRaw* blocks2;
 	cc_bool allAir = true, allSolid = true;
 	int index, cIndex;
 	BlockID block;
@@ -271,8 +272,6 @@ static cc_bool ReadChunkData(int x1, int y1, int z1, cc_bool* outAllAir) {
 #ifndef EXTENDED_BLOCKS
 	ReadChunkBody(blocks[index]);
 #else
-	BlockRaw* blocks2;
-
 	if (World.IDMask <= 0xFF) {
 		ReadChunkBody(blocks[index]);
 	} else {
@@ -361,19 +360,15 @@ static void OutputChunkPartsMeta(int x, int y, int z, struct ChunkInfo* info) {
 }
 
 void Builder_MakeChunk(struct ChunkInfo* info) {
-#if CC_BUILD_MAXSTACK <= (32 * 1024)
-	void* mem        = TempMem_Alloc((EXTCHUNK_SIZE_3 * sizeof(BlockID)) + (CHUNK_SIZE_3 * FACE_COUNT));
-	BlockID* chunk   = (BlockID*)mem;
-	cc_uint8* counts = (cc_uint8*)(chunk + EXTCHUNK_SIZE_3);
+#ifdef CC_BUILD_TINYSTACK
+	/* The Saturn build only has 16 kb stack, not large enough */
+	static BlockID chunk[EXTCHUNK_SIZE_3]; 
+	static cc_uint8 counts[CHUNK_SIZE_3 * FACE_COUNT]; 
+	static int bitFlags[1];
 #else
 	BlockID chunk[EXTCHUNK_SIZE_3]; 
 	cc_uint8 counts[CHUNK_SIZE_3 * FACE_COUNT]; 
-#endif
-
-#ifdef CC_BUILD_ADVLIGHTING
 	int bitFlags[EXTCHUNK_SIZE_3];
-#else
-	int bitFlags[1];
 #endif
 
 	cc_bool allAir, allSolid, onBorder;
@@ -420,10 +415,9 @@ void Builder_MakeChunk(struct ChunkInfo* info) {
 		info.occlusionFlags = (cc_uint8)ComputeOcclusion();
 #endif
 
-#if CC_GFX_BACKEND != CC_GFX_BACKEND_GL11
+#ifndef CC_BUILD_GL11
 	/* add an extra element to fix crashing on some GPUs */
-	info->vb = Gfx_CreateVb(VERTEX_FORMAT_TEXTURED, totalVerts + 1);
-	Builder_Vertices = (struct VertexTextured*)Gfx_LockVb(info->vb,
+	Builder_Vertices = (struct VertexTextured*)Gfx_RecreateAndLockVb(&info->vb,
 													VERTEX_FORMAT_TEXTURED, totalVerts + 1);
 #else
 	/* NOTE: Relies on assumption vb is ignored by GL11 Gfx_LockVb implementation */
@@ -448,7 +442,7 @@ void Builder_MakeChunk(struct ChunkInfo* info) {
 		}
 	}
 
-#if CC_GFX_BACKEND == CC_GFX_BACKEND_GL11
+#ifdef CC_BUILD_GL11
 	cIndex = World_ChunkPack(x1 >> CHUNK_SHIFT, y1 >> CHUNK_SHIFT, z1 >> CHUNK_SHIFT);
 
 	for (index = 0; index < MapRenderer_1DUsedCount; index++) {

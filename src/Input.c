@@ -325,16 +325,11 @@ struct InputDevice TouchDevice = {
 *----------------------------------------------------------Mouse----------------------------------------------------------*
 *#########################################################################################################################*/
 struct Pointer Pointers[INPUT_MAX_POINTERS];
-struct _PointerHooks PointerHooks;
 
-static void Pointer_SetPressed(int idx, cc_bool pressed) {
+void Pointer_SetPressed(int idx, cc_bool pressed) {
 	if (pressed) {
-		if (PointerHooks.DownHook && PointerHooks.DownHook(idx)) return;
-
 		Event_RaiseInt(&PointerEvents.Down, idx);
 	} else {
-		if (PointerHooks.UpHook && PointerHooks.UpHook(idx)) return;
-
 		Event_RaiseInt(&PointerEvents.Up,   idx);
 	}
 }
@@ -374,8 +369,6 @@ void Pointer_SetPosition(int idx, int x, int y) {
 	if (x == Pointers[idx].x && y == Pointers[idx].y) return;
 	/* TODO: reset to -1, -1 when pointer is removed */
 	Pointers[idx].x = x; Pointers[idx].y = y;
-
-	if (PointerHooks.MoveHook && PointerHooks.MoveHook(idx)) return;
 	
 #ifdef CC_BUILD_TOUCH
 	if (Input_TouchMode && !(touches[idx].type & TOUCH_TYPE_GUI)) return;
@@ -576,26 +569,16 @@ void Gamepad_SetButton(int port, int btn, int pressed) {
 }
 
 void Gamepad_SetAxis(int port, int axis, float x, float y, float delta) {
-	struct GamepadDevice* dev = &Gamepad_Devices[port];
-	struct PadAxisUpdate upd;
 	float scale;
 	int sensi;
 
-	dev->axisX[axis] = x;
-	dev->axisY[axis] = y;
+	Gamepad_Devices[port].axisX[axis] = x;
+	Gamepad_Devices[port].axisY[axis] = y;
 	if (x == 0 && y == 0) return;
 
-	sensi  = Gamepad_AxisSensitivity[axis];
-	scale  = delta * 60.0f * axis_sensiFactor[sensi];
-
-	upd.port = port;
-	upd.axis = axis;
-	upd.x    = x * scale;
-	upd.y    = y * scale;
-	upd.xSteps = Utils_AccumulateWheelDelta(&dev->padXAcc, upd.x / 100.0f);
-	upd.ySteps = Utils_AccumulateWheelDelta(&dev->padYAcc, upd.y / 100.0f);
-
-	Event_RaisePadAxis(&ControllerEvents.AxisUpdate, &upd);
+	sensi = Gamepad_AxisSensitivity[axis];
+	scale = delta * 60.0f * axis_sensiFactor[sensi];
+	Event_RaisePadAxis(&ControllerEvents.AxisUpdate, port, axis, x * scale, y * scale);
 }
 
 void Gamepad_Tick(float delta) {
@@ -608,16 +591,6 @@ void Gamepad_Tick(float delta) {
 	}
 }
 
-static CC_NOINLINE void Gamepad_Add(int i, long deviceID, const struct BindMapping_* defaults) {
-	Mem_Copy(&Gamepad_Devices[i].base, &padDevice, sizeof(struct InputDevice));
-	Gamepad_Devices[i].base.rawIndex     = i;
-	Gamepad_Devices[i].base.currentBinds = padBind_Mappings[i];
-	Gamepad_Devices[i].base.defaultBinds = defaults;
-	Gamepad_Devices[i].deviceID          = deviceID;
-
-	InputBind_Load(&Gamepad_Devices[i].base);
-}
-
 int Gamepad_Connect(long deviceID, const struct BindMapping_* defaults) {
 	int i;
 	for (i = 0; i < INPUT_MAX_GAMEPADS; i++)
@@ -625,11 +598,17 @@ int Gamepad_Connect(long deviceID, const struct BindMapping_* defaults) {
 		if (Gamepad_Devices[i].deviceID == deviceID) return i;
 		if (Gamepad_Devices[i].deviceID != 0) continue;
 		
-		Gamepad_Add(i, deviceID, defaults);
+		Mem_Copy(&Gamepad_Devices[i].base, &padDevice, sizeof(struct InputDevice));
+		Gamepad_Devices[i].base.rawIndex     = i;
+		Gamepad_Devices[i].base.currentBinds = padBind_Mappings[i];
+		Gamepad_Devices[i].base.defaultBinds = defaults;
+		Gamepad_Devices[i].deviceID          = deviceID;
+
+		InputBind_Load(&Gamepad_Devices[i].base);
 		return i;
 	}
 
-	Process_Abort("Not enough controllers");
+	Logger_Abort("Not enough controllers");
 	return 0;
 }
 

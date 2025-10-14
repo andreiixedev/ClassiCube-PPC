@@ -328,6 +328,7 @@ static void MakeContentView(void) {
 	[winHandle setContentView:viewHandle];
 }
 
+#ifdef CC_BUILD_ICON
 // See misc/macOS/mac_icon_gen.cs for how to generate this file
 #include "../misc/macOS/CCIcon_mac.h"
 
@@ -351,6 +352,9 @@ static void ApplyIcon(void) {
 	[appHandle setApplicationIconImage:img];
 	//[img release];
 }
+#else
+static void ApplyIcon(void) { }
+#endif
 
 static pascal OSErr HandleQuitMessage(const AppleEvent* ev, AppleEvent* reply, long handlerRefcon) {
 	Window_RequestClose();
@@ -806,11 +810,11 @@ void GLContext_Create(void) {
 		Platform_LogConst("Trying again to create a non-fullscreen pixel format.");
 		fmt = MakePixelFormat(false);
 	}
-	if (!fmt) Process_Abort("Choosing pixel format");
+	if (!fmt) Logger_Abort("Choosing pixel format");
 
 	ctxHandle = [NSOpenGLContext alloc];
 	ctxHandle = [ctxHandle initWithFormat:fmt shareContext:Nil];
-	if (!ctxHandle) Process_Abort("Failed to create OpenGL context");
+	if (!ctxHandle) Logger_Abort("Failed to create OpenGL context");
 
 	[ctxHandle setView:viewHandle];
 	[fmt release];

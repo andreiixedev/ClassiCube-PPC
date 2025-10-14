@@ -40,7 +40,7 @@ ifeq ($(PLAT),web)
 	CC      = emcc
 	OEXT    = .html
 	CFLAGS  = -g
-	LDFLAGS = -g -s WASM=1 -s NO_EXIT_RUNTIME=1 -s ABORTING_MALLOC=0 -s ALLOW_MEMORY_GROWTH=1 -s TOTAL_STACK=256Kb --js-library $(SOURCE_DIR)/interop_web.js
+	LDFLAGS = -g -s WASM=1 -s NO_EXIT_RUNTIME=1 -s ALLOW_MEMORY_GROWTH=1 -s TOTAL_STACK=1Mb --js-library $(SOURCE_DIR)/interop_web.js
 	BUILD_DIR = build-web
 endif
 
@@ -63,14 +63,6 @@ ifeq ($(PLAT),sunos)
 	CFLAGS  += -DCC_BUILD_ICON
 	LIBS    =  -lsocket -lX11 -lXi -lGL
 	BUILD_DIR = build-solaris
-endif
-
-ifeq ($(PLAT),hp-ux)
-	CC      = gcc
-	CFLAGS  = -DCC_BUILD_ICON
-	LDFLAGS =
-	LIBS    = -lm -lX11 -lXi -lXext -L/opt/graphics/OpenGL/lib -lGL -lpthread
-	BUILD_DIR = build-hpux
 endif
 
 ifeq ($(PLAT),darwin)
@@ -114,8 +106,7 @@ ifeq ($(PLAT),haiku)
 	OBJECTS += $(BUILD_DIR)/Platform_BeOS.o $(BUILD_DIR)/Window_BeOS.o
 	CFLAGS  = -pipe -fno-math-errno
 	LDFLAGS = -g
-	LINK    = $(CXX)
-	LIBS    = -lGL -lnetwork -lbe -lgame -ltracker
+	LIBS    = -lGL -lnetwork -lstdc++ -lbe -lgame -ltracker
 	BUILD_DIR = build-haiku
 endif
 
@@ -123,8 +114,7 @@ ifeq ($(PLAT),beos)
 	OBJECTS += $(BUILD_DIR)/Platform_BeOS.o $(BUILD_DIR)/Window_BeOS.o
 	CFLAGS  = -pipe
 	LDFLAGS = -g
-	LINK    = $(CXX)
-	LIBS    = -lGL -lnetwork -lbe -lgame -ltracker
+	LIBS    = -lGL -lnetwork -lstdc++ -lbe -lgame -ltracker
 	BUILD_DIR = build-beos
 	TRACK_DEPENDENCIES=0
 endif
@@ -138,14 +128,6 @@ ifeq ($(PLAT),irix)
 	CC      = gcc
 	LIBS    = -lGL -lX11 -lXi -lpthread -ldl
 	BUILD_DIR = build-irix
-endif
-
-ifeq ($(PLAT),dos)
-	CC	=  i586-pc-msdosdjgpp-gcc 
-	LIBS    =
-	LDFLAGS = -g
-	OEXT    =  .exe
-	BUILD_DIR = build-dos
 endif
 
 
@@ -175,9 +157,6 @@ else
 	CFLAGS += -g
 endif
 
-# link with CC by default
-LINK ?= $(CC)
-
 default: $(PLAT)
 
 web:
@@ -188,8 +167,6 @@ mingw:
 	$(MAKE) $(TARGET) PLAT=mingw
 sunos:
 	$(MAKE) $(TARGET) PLAT=sunos
-hp-ux:
-	$(MAKE) $(TARGET) PLAT=hp-ux
 darwin:
 	$(MAKE) $(TARGET) PLAT=darwin
 freebsd:
@@ -208,8 +185,7 @@ serenityos:
 	$(MAKE) $(TARGET) PLAT=serenityos
 irix:
 	$(MAKE) $(TARGET) PLAT=irix
-dos:
-	$(MAKE) $(TARGET) PLAT=dos
+
 # Default overrides
 sdl2:
 	$(MAKE) $(TARGET) SDL2=1
@@ -222,12 +198,10 @@ release:
 
 # Some builds require more complex handling, so are moved to
 #  separate makefiles to avoid having one giant messy makefile
-32x:
-	$(MAKE) -f misc/32x/Makefile
-saturn:
-	$(MAKE) -f misc/saturn/Makefile
 dreamcast:
 	$(MAKE) -f misc/dreamcast/Makefile
+saturn:
+	$(MAKE) -f misc/saturn/Makefile
 psp:
 	$(MAKE) -f misc/psp/Makefile
 vita:
@@ -245,8 +219,6 @@ xbox360:
 	$(MAKE) -f misc/xbox360/Makefile
 n64:
 	$(MAKE) -f misc/n64/Makefile
-gba:
-	$(MAKE) -f misc/gba/Makefile
 ds:
 	$(MAKE) -f misc/ds/Makefile
 3ds:
@@ -265,18 +237,14 @@ macclassic_68k:
 	$(MAKE) -f misc/macclassic/Makefile_68k
 macclassic_ppc:
 	$(MAKE) -f misc/macclassic/Makefile_ppc
-amiga_68k:
-	$(MAKE) -f misc/amiga/Makefile_68k
-amiga_ppc:
-	$(MAKE) -f misc/amiga/Makefile_ppc
-
+	
 clean:
 	$(RM) $(OBJECTS)
 
 $(BUILD_DIR):
 	mkdir -p $(BUILD_DIR)
 $(ENAME): $(BUILD_DIR) $(OBJECTS)
-	$(LINK) $(LDFLAGS) -o $@$(OEXT) $(OBJECTS) $(EXTRA_LIBS) $(LIBS)
+	$(CC) $(LDFLAGS) -o $@$(OEXT) $(OBJECTS) $(EXTRA_LIBS) $(LIBS)
 
 
 # macOS app bundle

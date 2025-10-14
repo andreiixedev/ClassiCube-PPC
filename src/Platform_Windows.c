@@ -17,10 +17,16 @@
 #define _UNICODE
 #endif
 #include <windows.h>
-/* Use own minimal versions of WinAPI headers so that compiling works on older Windows SDKs */
-#include "../misc/windows/min-winsock2.h" /* #include <winsock2.h> #include <ws2tcpip.h> */
-#include "../misc/windows/min-shellapi.h" /* #include <shellapi.h> */
-#include "../misc/windows/min-wincrypt.h" /* #include <wincrypt.h> */
+/*
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#include <shellapi.h>
+#include <wincrypt.h>
+*/
+/* Compatibility versions so compiling works on older Windows SDKs */
+#include "../misc/windows/min-winsock2.h"
+#include "../misc/windows/min-shellapi.h"
+#include "../misc/windows/min-wincrypt.h"
 #include "../misc/windows/min-kernel32.h"
 
 static HANDLE heap;
@@ -32,36 +38,8 @@ const cc_result ReturnCode_SocketWouldBlock = WSAEWOULDBLOCK;
 const cc_result ReturnCode_SocketDropped    = WSAECONNRESET;
 
 const char* Platform_AppNameSuffix = "";
-cc_bool  Platform_ReadonlyFilesystem;
-cc_uint8 Platform_Flags;
-
-/*########################################################################################################################*
-*-----------------------------------------------------Main entrypoint-----------------------------------------------------*
-*#########################################################################################################################*/
-#include "main_impl.h"
-
-/* NOTE: main_real is used for when compiling with MinGW without linking to startup files. */
-/*  Normally, the final code produced for "main" is our "main" combined with crt's main */
-/*  (mingw-w64-crt/crt/gccmain.c) - alas this immediately crashes the game on startup. */
-/* Using main_real instead and setting main_real as the entrypoint fixes the crash. */
-#if defined CC_NOMAIN
-int main_real(int argc, char** argv) {
-#else
-int main(int argc, char** argv) {
-#endif
-	cc_result res;
-	SetupProgram(argc, argv);
-
-	/* If single process mode, then the loop is launcher -> game -> launcher etc */
-	do {
-		res = RunProgram(argc, argv);
-	} while (Platform_IsSingleProcess() && Window_Main.Exists);
-
-	Window_Free();
-	Process_Exit(res);
-	return res;
-}
-
+cc_bool Platform_ReadonlyFilesystem;
+cc_bool Platform_SingleProcess;
 
 /*########################################################################################################################*
 *---------------------------------------------------------Memory----------------------------------------------------------*
@@ -169,7 +147,7 @@ TimeMS DateTime_CurrentUTC(void) {
 	return FileTime_TotalSecs(raw);
 }
 
-void DateTime_CurrentLocal(struct cc_datetime* t) {
+void DateTime_CurrentLocal(struct DateTime* t) {
 	SYSTEMTIME localTime;
 	GetLocalTime(&localTime);
 
@@ -197,120 +175,12 @@ cc_uint64 Stopwatch_Measure(void) {
 
 
 /*########################################################################################################################*
-*-------------------------------------------------------Crash handling----------------------------------------------------*
-*#########################################################################################################################*/
-/* In EXCEPTION_ACCESS_VIOLATION case, arg 1 is access type and arg 2 is virtual address */
-/* https://learn.microsoft.com/en-us/windows/win32/api/winnt/ns-winnt-exception_record */
-#define IsNullReadException(r)  (r->ExceptionCode == EXCEPTION_ACCESS_VIOLATION && r->ExceptionInformation[1] == 0 && r->ExceptionInformation[0] == 0) 
-#define IsNullWriteException(r) (r->ExceptionCode == EXCEPTION_ACCESS_VIOLATION && r->ExceptionInformation[1] == 0 && r->ExceptionInformation[0] == 1)
-
-static const char* ExceptionDescribe(struct _EXCEPTION_RECORD* rec) {
-	if (IsNullReadException(rec))  return "NULL_POINTER_READ";
-	if (IsNullWriteException(rec)) return "NULL_POINTER_WRITE";
-
-	switch (rec->ExceptionCode) {
-	case EXCEPTION_ACCESS_VIOLATION:    return "ACCESS_VIOLATION";
-	case EXCEPTION_ILLEGAL_INSTRUCTION: return "ILLEGAL_INSTRUCTION";
-	case EXCEPTION_INT_DIVIDE_BY_ZERO:  return "DIVIDE_BY_ZERO";
-	}
-	return NULL;
-}
-
-static LONG WINAPI UnhandledFilter(struct _EXCEPTION_POINTERS* info) {
-	cc_string msg; char msgBuffer[128 + 1];
-	struct _EXCEPTION_RECORD* rec;
-	const char* desc;
-	cc_uint32 code;
-	cc_uintptr addr;
-	DWORD i, numArgs;
-
-	rec  = info->ExceptionRecord;
-	code = (cc_uint32)rec->ExceptionCode;
-	addr = (cc_uintptr)rec->ExceptionAddress;
-	desc = ExceptionDescribe(rec);
-
-	String_InitArray_NT(msg, msgBuffer);
-	if (desc) {
-		String_Format2(&msg, "Unhandled %c error at %x", desc, &addr);
-	} else {
-		String_Format2(&msg, "Unhandled exception 0x%h at %x", &code, &addr);
-	}
-
-	numArgs = rec->NumberParameters;
-	if (IsNullReadException(rec) || IsNullWriteException(rec)) {
-		/* Pointless to log exception arguments in this case */
-	} else if (numArgs) {
-		numArgs = min(numArgs, EXCEPTION_MAXIMUM_PARAMETERS);
-		String_AppendConst(&msg, " [");
-
-		for (i = 0; i < numArgs; i++) {
-			String_Format1(&msg, "0x%x,", &rec->ExceptionInformation[i]);
-		}
-		String_Append(&msg, ']');
-	}
-
-	msg.buffer[msg.length] = '\0';
-	Logger_DoAbort(0, msg.buffer, info->ContextRecord);
-	return EXCEPTION_EXECUTE_HANDLER; /* TODO: different flag */
-}
-
-void CrashHandler_Install(void) {
-	SetUnhandledExceptionFilter(UnhandledFilter);
-}
-
-#if __GNUC__
-/* Don't want compiler doing anything fancy with registers */
-void __attribute__((optimize("O0"))) Process_Abort2(cc_result result, const char* raw_msg) {
-#else
-void Process_Abort2(cc_result result, const char* raw_msg) {
-#endif
-	CONTEXT ctx;
-	CONTEXT* ctx_ptr;
-	#if _M_IX86 && __GNUC__
-	/* Stack frame layout on x86: */
-	/*  [ebp] is previous frame's EBP */
-	/*  [ebp+4] is previous frame's EIP (return address) */
-	/*  address of [ebp+8] is previous frame's ESP */
-	__asm__(
-		"mov 0(%%ebp), %%eax \n\t" /* mov eax, [ebp]     */
-		"mov %%eax, %0       \n\t" /* mov [ctx.Ebp], eax */
-		"mov 4(%%ebp), %%eax \n\t" /* mov eax, [ebp+4]   */
-		"mov %%eax, %1       \n\t" /* mov [ctx.Eip], eax */
-		"lea 8(%%ebp), %%eax \n\t" /* lea eax, [ebp+8]   */
-		"mov %%eax, %2"            /* mov [ctx.Esp], eax */
-		: "=m" (ctx.Ebp), "=m" (ctx.Eip), "=m" (ctx.Esp)
-		:
-		: "eax", "memory"
-	);
-	ctx.ContextFlags = CONTEXT_CONTROL;
-	ctx_ptr = &ctx;
-	#else
-	/* This method is guaranteed to exist on 64 bit windows. */
-	/* NOTE: This is missing in 32 bit Windows 2000 however  */
-	if (_RtlCaptureContext) {
-		_RtlCaptureContext(&ctx);
-		ctx_ptr = &ctx;
-	} else { ctx_ptr = NULL; }
-	#endif
-	Logger_DoAbort(result, raw_msg, ctx_ptr);
-}
-
-
-/*########################################################################################################################*
 *-----------------------------------------------------Directory/File------------------------------------------------------*
 *#########################################################################################################################*/
 void Directory_GetCachePath(cc_string* path) { }
 
 void Platform_EncodePath(cc_filepath* dst, const cc_string* src) {
 	Platform_EncodeString(dst, src);
-}
-
-void Platform_DecodePath(cc_string* dst, const cc_filepath* path) {
-	int i;
-	for (i = 0; i < FILENAME_SIZE && path->uni[i]; i++) 
-	{
-		String_Append(dst, Convert_CodepointToCP437(path->uni[i]));
-	}
 }
 
 cc_result Directory_Create(const cc_filepath* path) {
@@ -462,29 +332,23 @@ static DWORD WINAPI ExecThread(void* param) {
 }
 
 void Thread_Run(void** handle, Thread_StartFunc func, int stackSize, const char* name) {
-#ifndef CC_BUILD_COOPTHREADED
 	DWORD threadID;
 	HANDLE thread = CreateThread(NULL, 0, ExecThread, (void*)func, CREATE_SUSPENDED, &threadID);
-	if (!thread) Process_Abort2(GetLastError(), "Creating thread");
+	if (!thread) Logger_Abort2(GetLastError(), "Creating thread");
 	
 	*handle = thread;
 	ResumeThread(thread);
-#endif
 }
 
 void Thread_Detach(void* handle) {
-#ifndef CC_BUILD_COOPTHREADED
 	if (!CloseHandle((HANDLE)handle)) {
-		Process_Abort2(GetLastError(), "Freeing thread handle");
+		Logger_Abort2(GetLastError(), "Freeing thread handle");
 	}
-#endif
 }
 
 void Thread_Join(void* handle) {
-#ifndef CC_BUILD_COOPTHREADED
 	WaitForSingleObject((HANDLE)handle, INFINITE);
 	Thread_Detach(handle);
-#endif
 }
 
 void* Mutex_Create(const char* name) {
@@ -501,41 +365,26 @@ void Mutex_Lock(void* handle)   { EnterCriticalSection((CRITICAL_SECTION*)handle
 void Mutex_Unlock(void* handle) { LeaveCriticalSection((CRITICAL_SECTION*)handle); }
 
 void* Waitable_Create(const char* name) {
-#ifndef CC_BUILD_COOPTHREADED
 	void* handle = CreateEventA(NULL, false, false, NULL);
 	if (!handle) {
-		Process_Abort2(GetLastError(), "Creating waitable");
+		Logger_Abort2(GetLastError(), "Creating waitable");
 	}
 	return handle;
-#else
-	return NULL;
-#endif
 }
 
 void Waitable_Free(void* handle) {
-#ifndef CC_BUILD_COOPTHREADED
 	if (!CloseHandle((HANDLE)handle)) {
-		Process_Abort2(GetLastError(), "Freeing waitable");
+		Logger_Abort2(GetLastError(), "Freeing waitable");
 	}
-#endif
 }
 
-void Waitable_Signal(void* handle) {
-#ifndef CC_BUILD_COOPTHREADED
-	SetEvent((HANDLE)handle);
-#endif
-}
-
+void Waitable_Signal(void* handle) { SetEvent((HANDLE)handle); }
 void Waitable_Wait(void* handle) {
-#ifndef CC_BUILD_COOPTHREADED
 	WaitForSingleObject((HANDLE)handle, INFINITE);
-#endif
 }
 
 void Waitable_WaitFor(void* handle, cc_uint32 milliseconds) {
-#ifndef CC_BUILD_COOPTHREADED
 	WaitForSingleObject((HANDLE)handle, milliseconds);
-#endif
 }
 
 
@@ -587,36 +436,27 @@ void Platform_LoadSysFonts(void) {
 /* Sanity check to ensure cc_sockaddr struct is large enough to contain all socket addresses supported by this platform */
 static char sockaddr_size_check[sizeof(SOCKADDR_STORAGE) < CC_SOCKETADDR_MAXSIZE ? 1 : -1];
 
-static cc_bool ParseIPv4(const cc_string* ip, int port, cc_sockaddr* dst) {
-	SOCKADDR_IN* addr4 = (SOCKADDR_IN*)dst->data;
-	cc_uint32 ip_addr;
-	if (!ParseIPv4Address(ip, &ip_addr)) return false;
 
-	addr4->sin_addr.S_un.S_addr = ip_addr;
-	addr4->sin_family      = AF_INET;
-	addr4->sin_port        = _htons(port);
-		
-	dst->size = sizeof(*addr4);
-	return true;
+static INT WINAPI FallbackParseAddress(LPWSTR addressString, INT addressFamily, LPVOID protocolInfo, LPVOID address, LPINT addressLength) {
+	SOCKADDR_IN* addr4 = (SOCKADDR_IN*)address;
+	cc_uint8*    addr  = (cc_uint8*)&addr4->sin_addr;
+	cc_string ip, parts[4 + 1];
+	cc_winstring* addrStr = (cc_winstring*)addressString;
+
+	ip = String_FromReadonly(addrStr->ansi);
+	/* 4+1 in case user tries '1.1.1.1.1' */
+	if (String_UNSAFE_Split(&ip, '.', parts, 4 + 1) != 4)
+		return ERR_INVALID_ARGUMENT;
+
+	if (!Convert_ParseUInt8(&parts[0], &addr[0]) || !Convert_ParseUInt8(&parts[1], &addr[1]) ||
+		!Convert_ParseUInt8(&parts[2], &addr[2]) || !Convert_ParseUInt8(&parts[3], &addr[3]))
+		return ERR_INVALID_ARGUMENT;
+
+	addr4->sin_family = AF_INET;
+	return 0;
 }
 
-static cc_bool ParseIPv6(const char* ip, int port, cc_sockaddr* dst) {
-#ifdef AF_INET6
-	SOCKADDR_IN6* addr6 = (SOCKADDR_IN6*)dst->data;
-	INT size = sizeof(*addr6);
-	if (!_WSAStringToAddressA) return false;
-
-	if (!_WSAStringToAddressA((char*)ip, AF_INET6, NULL, addr6, &size)) {
-		addr6->sin6_port = _htons(port);
-
-		dst->size = size;
-		return true;
-	}
-#endif
-	return false;
-}
-
-static cc_result ParseHostOld(const char* host, int port, cc_sockaddr* addrs, int* numValidAddrs) {
+static cc_result ParseHostOld(char* host, int port, cc_sockaddr* addrs, int* numValidAddrs) {
 	struct hostent* res;
 	cc_result wsa_res;
 	SOCKADDR_IN* addr4;
@@ -653,7 +493,7 @@ static cc_result ParseHostOld(const char* host, int port, cc_sockaddr* addrs, in
 	return i == 0 ? ERR_INVALID_ARGUMENT : 0;
 }
 
-static cc_result ParseHostNew(const char* host, int port, cc_sockaddr* addrs, int* numValidAddrs) {
+static cc_result ParseHostNew(char* host, int port, cc_sockaddr* addrs, int* numValidAddrs) {
 	char portRaw[32]; cc_string portStr;
 	struct addrinfo hints = { 0 };
 	struct addrinfo* result;
@@ -689,11 +529,39 @@ static cc_result ParseHostNew(const char* host, int port, cc_sockaddr* addrs, in
 	return i == 0 ? ERR_INVALID_ARGUMENT : 0;
 }
 
-static cc_result ParseHost(const char* host, int port, cc_sockaddr* addrs, int* numValidAddrs) {
+cc_result Socket_ParseAddress(const cc_string* address, int port, cc_sockaddr* addrs, int* numValidAddrs) {
+	SOCKADDR_IN*  addr4 = (SOCKADDR_IN* )addrs[0].data;
+	SOCKADDR_IN6* addr6 = (SOCKADDR_IN6*)addrs[0].data;
+	cc_winstring str;
+	INT size;
+
+	*numValidAddrs = 0;
+	Platform_EncodeString(&str, address);
+
+	size = sizeof(*addr4);
+	if (!_WSAStringToAddressW(str.uni, AF_INET,  NULL, addr4, &size)) {
+		addr4->sin_port  = _htons(port);
+
+		addrs[0].size  = size;
+		*numValidAddrs = 1;
+		return 0;
+	}
+
+#ifdef AF_INET6
+	size = sizeof(*addr6);
+	if (!_WSAStringToAddressW(str.uni, AF_INET6, NULL, addr6, &size)) {
+		addr6->sin6_port = _htons(port);
+
+		addrs[0].size  = size;
+		*numValidAddrs = 1;
+		return 0;
+	}
+#endif
+
 	if (_getaddrinfo) {
-		return ParseHostNew(host, port, addrs, numValidAddrs);
+		return ParseHostNew(str.ansi, port, addrs, numValidAddrs);
 	} else {
-		return ParseHostOld(host, port, addrs, numValidAddrs);
+		return ParseHostOld(str.ansi, port, addrs, numValidAddrs);
 	}
 }
 
@@ -758,19 +626,13 @@ cc_result Socket_CheckReadable(cc_socket s, cc_bool* readable) {
 }
 
 cc_result Socket_CheckWritable(cc_socket s, cc_bool* writable) {
+	int resultSize = sizeof(cc_result);
 	cc_result res  = Socket_Poll(s, SOCKET_POLL_WRITE, writable);
 	if (res || *writable) return res;
 
-	return Socket_GetLastError(s);
-}
-
-cc_result Socket_GetLastError(cc_socket s) {
-	int error   = ERR_INVALID_ARGUMENT;
-	int errSize = sizeof(error);
-
 	/* https://stackoverflow.com/questions/29479953/so-error-value-after-successful-socket-operation */
-	_getsockopt(s, SOL_SOCKET, SO_ERROR, (char*)&error, &errSize);
-	return error;
+	_getsockopt(s, SOL_SOCKET, SO_ERROR, (char*)&res, &resultSize);
+	return res;
 }
 
 
@@ -810,8 +672,7 @@ cc_result Process_StartGame2(const cc_string* args, int numArgs) {
 	cc_result res;
 	int len, i;
 
-	if (Platform_IsSingleProcess()) return SetGameArgs(args, numArgs);
-
+	if (Platform_SingleProcess) return SetGameArgs(args, numArgs);
 	if ((res = Process_RawGetExePath(&path, &len))) return res;
 	si.wide.cb = sizeof(STARTUPINFOW);
 	
@@ -1025,7 +886,7 @@ void Platform_EncodeString(cc_winstring* dst, const cc_string* src) {
 	cc_unichar* uni;
 	char* ansi;
 	int i;
-	if (src->length > FILENAME_SIZE) Process_Abort("String too long to expand");
+	if (src->length > FILENAME_SIZE) Logger_Abort("String too long to expand");
 
 	uni = dst->uni;
 	for (i = 0; i < src->length; i++) 
@@ -1070,7 +931,9 @@ void Platform_Init(void) {
 	if (conHandle == INVALID_HANDLE_VALUE) conHandle = NULL;
 
 	Winsock_LoadDynamicFuncs();
-
+	/* Fallback for older OS versions which lack WSAStringToAddressW */
+	if (!_WSAStringToAddressW) _WSAStringToAddressW = FallbackParseAddress;
+	
 	res = _WSAStartup(MAKEWORD(2, 2), &wsaData);
 	if (res) Logger_SysWarn(res, "starting WSA");
 }
@@ -1080,16 +943,21 @@ void Platform_Free(void) {
 	HeapDestroy(heap);
 }
 
-cc_bool Platform_DescribeError(cc_result res, cc_string* dst) {
+cc_bool Platform_DescribeErrorExt(cc_result res, cc_string* dst, void* lib) {
 	WCHAR chars[NATIVE_STR_LEN];
 	DWORD flags = FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS;
+	if (lib) flags |= FORMAT_MESSAGE_FROM_HMODULE;
 
-	res = FormatMessageW(flags, NULL, res, MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT), 
+	res = FormatMessageW(flags, lib, res, MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT), 
 						 chars, NATIVE_STR_LEN, NULL);
 	if (!res) return false;
 
 	String_AppendUtf16(dst, chars, res * 2);
 	return true;
+}
+
+cc_bool Platform_DescribeError(cc_result res, cc_string* dst) {
+	return Platform_DescribeErrorExt(res, dst, NULL);
 }
 
 
@@ -1130,23 +998,8 @@ cc_result Platform_Decrypt(const void* data, int len, cc_string* dst) {
 	return 0;
 }
 
-static BOOL (WINAPI *_RtlGenRandom)(PVOID data, ULONG len);
-
 cc_result Platform_GetEntropy(void* data, int len) {
-	static const struct DynamicLibSym funcs[] = {
-		DynamicLib_ReqSym2("SystemFunction036", RtlGenRandom)
-	};
-
-	if (!_RtlGenRandom) {
-		static const cc_string kernel32 = String_FromConst("ADVAPI32.DLL");
-		void* lib;
-		
-		DynamicLib_LoadAll(&kernel32, funcs, Array_Elems(funcs), &lib);
-		if (!_RtlGenRandom) return ERR_NOT_SUPPORTED;
-	}
-	
-	if (!_RtlGenRandom(data, len)) return GetLastError();
-	return 0;
+	return ERR_NOT_SUPPORTED;
 }
 
 

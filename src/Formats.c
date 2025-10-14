@@ -16,7 +16,6 @@
 #include "Chat.h"
 #include "TexturePack.h"
 #include "Utils.h"
-#include "Audio.h"
 
 #ifdef CC_BUILD_FILESYSTEM
 static struct LocationUpdate* spawn_point;
@@ -67,15 +66,12 @@ cc_result Map_LoadFrom(const cc_string* path) {
 	struct LocationUpdate update = { 0 };
 	struct MapImporter* imp;
 	struct Stream stream;
-	cc_filepath raw_path;
 	cc_result res;
-
 	Game_Reset();
+	
 	spawn_point = &update;
-
-	Platform_EncodePath(&raw_path, path);
-	res = Stream_OpenPath(&stream, &raw_path);
-	if (res) { Logger_IOWarn2(res, "opening", &raw_path); return res; }
+	res = Stream_OpenFile(&stream, path);
+	if (res) { Logger_SysWarn2(res, "opening", path); return res; }
 
 	imp = MapImporter_Find(path);
 	if (!imp) {
@@ -86,7 +82,7 @@ cc_result Map_LoadFrom(const cc_string* path) {
 
 	/* No point logging error for closing readonly file */
 	(void)stream.Close(&stream);
-	if (res) Logger_IOWarn2(res, "decoding", &raw_path);
+	if (res) Logger_SysWarn2(res, "decoding", path);
 
 	World_SetNewMap(World.Blocks, World.Width, World.Height, World.Length);
 	if (!spawn_point) LocalPlayer_CalcDefaultSpawn(Entities.CurPlayer, &update);
@@ -1213,7 +1209,7 @@ static cc_result Java_ReadObject(struct Stream* stream, struct JUnion* object) {
 }
 
 static int Java_I32(struct JFieldDesc* field) {
-	if (field->Type != JFIELD_I32) Process_Abort("Field type must be Int32");
+	if (field->Type != JFIELD_I32) Logger_Abort("Field type must be Int32");
 	return field->Value.I32;
 }
 
@@ -1325,7 +1321,7 @@ static cc_result Dat_LoadFormat2(struct Stream* stream) {
 		} else if (String_CaselessEqualsConst(&fieldName, "depth")) {
 			World.Height = Java_I32(field);
 		} else if (String_CaselessEqualsConst(&fieldName, "blocks")) {
-			if (field->Type != JFIELD_ARRAY) Process_Abort("Blocks field must be Array");
+			if (field->Type != JFIELD_ARRAY) Logger_Abort("Blocks field must be Array");
 			World.Blocks = field->Value.Array.Ptr;
 			World.Volume = field->Value.Array.Size;
 		} else if (String_CaselessEqualsConst(&fieldName, "xSpawn")) {

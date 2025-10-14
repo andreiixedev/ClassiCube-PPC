@@ -152,12 +152,10 @@ void Context2D_Alloc(struct Context2D* ctx, int width, int height) {
 	ctx->height = height;
 	ctx->meta   = NULL;
 
-	if (Gfx.NonPowTwoTexturesSupport == GFX_NONPOW2_NONE) {
+	if (!Gfx.SupportsNonPowTwoTextures) {
 		/* Allocate power-of-2 sized bitmap equal to or greater than the given size */
 		width  = Math_NextPowOf2(width);
 		height = Math_NextPowOf2(height);
-	} else if (Gfx.NonPowTwoTexturesSupport == GFX_NONPOW2_UPLOAD) {
-		/* Can upload texture without needing to pad up to power of two */
 	}
 	
 	if (Gfx.MinTexWidth)  { width  = max(width,  Gfx.MinTexWidth);  }
@@ -318,25 +316,15 @@ void Drawer2D_MakeTextTexture(struct Texture* tex, struct DrawTextArgs* args) {
 
 void Context2D_MakeTexture(struct Texture* tex, struct Context2D* ctx) {
 	int flags = TEXTURE_FLAG_NONPOW2 | TEXTURE_FLAG_LOWRES;
-	int nouv  = Gfx.Limitations & GFX_LIMIT_NO_UV_SUPPORT;
 	Gfx_RecreateTexture(&tex->ID, &ctx->bmp, flags, false);
 	
 	/* TODO need to find a better solution in NoUVSupport case */
-	tex->width  = nouv ? ctx->bmp.width  : ctx->width;
-	tex->height = nouv ? ctx->bmp.height : ctx->height;
+	tex->width  = Gfx.NoUVSupport ? ctx->bmp.width  : ctx->width;
+	tex->height = Gfx.NoUVSupport ? ctx->bmp.height : ctx->height;
 	
-	tex->uv.u1  = 0.0f; 
-	tex->uv.v1  = 0.0f;
-	tex->uv.u2  = Context2D_CalcUV(ctx->width,  ctx->bmp.width);
-	tex->uv.v2  = Context2D_CalcUV(ctx->height, ctx->bmp.height);
-}
-
-float Context2D_CalcUV(int pixels, int axisLen) {
-	if (Gfx.NonPowTwoTexturesSupport == GFX_NONPOW2_UPLOAD) {
-		return (float)pixels / (float)Math_NextPowOf2(axisLen);
-	} else {
-		return (float)pixels / (float)axisLen;
-	}
+	tex->uv.u1  = 0.0f; tex->uv.v1 = 0.0f;
+	tex->uv.u2  = (float)ctx->width  / (float)ctx->bmp.width;
+	tex->uv.v2  = (float)ctx->height / (float)ctx->bmp.height;
 }
 
 cc_bool Drawer2D_ValidColorCodeAt(const cc_string* text, int i) {

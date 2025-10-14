@@ -101,10 +101,7 @@ FT_BEGIN_HEADER
   /* performance-critical functions (e.g. FT_MulFix).  You should only do  */
   /* that to verify that the assembler function works properly, or to      */
   /* execute benchmark tests of the various implementations.               */
-#ifdef CC_BUILD_SYMBIAN
-#define FT_CONFIG_OPTION_NO_ASSEMBLER
-#endif
-
+/* #define FT_CONFIG_OPTION_NO_ASSEMBLER */
 
 
   /*************************************************************************/

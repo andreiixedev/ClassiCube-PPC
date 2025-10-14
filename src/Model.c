@@ -41,6 +41,10 @@ void Model_Init(struct Model* model) {
 	model->usesHumanSkin  = false;
 	model->pushes = true;
 
+	model->gravity     = 0.08f;
+	Vec3_Set(model->drag,           0.91f, 0.98f, 0.91f);
+	Vec3_Set(model->groundFriction, 0.6f,   1.0f,  0.6f);
+
 	model->maxScale    = 2.0f;
 	model->shadowScale = 1.0f;
 	model->armX = 6; model->armY = 12;
@@ -114,12 +118,12 @@ void Model_Render(struct Model* model, struct Entity* e) {
 }
 
 void Model_SetupState(struct Model* model, struct Entity* e) {
-	PackedCol color;
+	PackedCol col;
 	float yawDelta;
 
 	model->index = 0;
-	color = e->VTABLE->GetCol(e);
-	Models.Cols[0] = color;
+	col = e->VTABLE->GetCol(e);
+	Models.Cols[0] = col;
 
 	/* If a model forgets to call Model_ApplyTexture but still tries to draw, */
 	/* then it is not using the model API properly. */
@@ -129,13 +133,11 @@ void Model_SetupState(struct Model* model, struct Entity* e) {
 	Models.vScale = 100.0f;
 
 	if (!e->NoShade) {
-		Models.Cols[1] = PackedCol_Scale(color, PACKEDCOL_SHADE_YMIN);
-		Models.Cols[2] = PackedCol_Scale(color, PACKEDCOL_SHADE_Z);
-		Models.Cols[4] = PackedCol_Scale(color, PACKEDCOL_SHADE_X);
+		Models.Cols[1] = PackedCol_Scale(col, PACKEDCOL_SHADE_YMIN);
+		Models.Cols[2] = PackedCol_Scale(col, PACKEDCOL_SHADE_Z);
+		Models.Cols[4] = PackedCol_Scale(col, PACKEDCOL_SHADE_X);
 	} else {
-		Models.Cols[1] = color; 
-		Models.Cols[2] = color; 
-		Models.Cols[4] = color;
+		Models.Cols[1] = col; Models.Cols[2] = col; Models.Cols[4] = col;
 	}
 
 	Models.Cols[3] = Models.Cols[2]; 
@@ -153,7 +155,7 @@ void Model_ApplyTexture(struct Entity* e) {
 	GfxResourceID tex;
 	cc_bool _64x64;
 
-	tex = (model->usesHumanSkin || e->NonHumanSkin) ? e->TextureId : 0;
+	tex = model->usesHumanSkin ? e->TextureId : e->MobTextureId;
 	if (tex) {
 		Models.skinType = e->SkinType;
 	} else {
@@ -198,7 +200,7 @@ void Model_LockVB(struct Entity* entity, int verticesCount) {
 #endif
 
 	real_vertices   = Models.Vertices;
-	Models.Vertices = (struct VertexTextured*)Gfx_LockDynamicVb(modelVB, VERTEX_FORMAT_TEXTURED, verticesCount);
+	Models.Vertices = Gfx_LockDynamicVb(modelVB, VERTEX_FORMAT_TEXTURED, verticesCount);
 }
 
 void Model_UnlockVB(void) {
@@ -214,17 +216,14 @@ void Model_DrawPart(struct ModelPart* part) {
 
 	struct ModelVertex v;
 	int i, count = part->count;
-	float uScale = Models.uScale;
-	float vScale = Models.vScale;
 
-	for (i = 0; i < count; i++) 
-	{
+	for (i = 0; i < count; i++) {
 		v = *src;
 		dst->x = v.x; dst->y = v.y; dst->z = v.z;
 		dst->Col = Models.Cols[i >> 2];
 
-		dst->U = (v.u & UV_POS_MASK) * uScale - (v.u >> UV_MAX_SHIFT) * 0.01f * uScale;
-		dst->V = (v.v & UV_POS_MASK) * vScale - (v.v >> UV_MAX_SHIFT) * 0.01f * vScale;
+		dst->U = (v.u & UV_POS_MASK) * Models.uScale - (v.u >> UV_MAX_SHIFT) * 0.01f * Models.uScale;
+		dst->V = (v.v & UV_POS_MASK) * Models.vScale - (v.v >> UV_MAX_SHIFT) * 0.01f * Models.vScale;
 		src++; dst++;
 	}
 	model->index += count;
@@ -531,7 +530,7 @@ struct CustomModel* CustomModel_Get(int id) {
 
 	/* TODO log message if allocation fails? */
 	if (!custom_models)
-		custom_models = (struct CustomModel*)Mem_TryAlloc(MAX_CUSTOM_MODELS, sizeof(struct CustomModel));
+		custom_models = Mem_TryAlloc(MAX_CUSTOM_MODELS, sizeof(struct CustomModel));
 
 	if (!custom_models) return NULL;
 	return &custom_models[id];
@@ -942,8 +941,8 @@ static void HumanModel_DrawCore(struct Entity* e, struct ModelSet* model, cc_boo
 	int type, num;
 	Model_ApplyTexture(e);
 
-	type = Models.skinType & 0x3;
-	set  = &model->limbs[type];
+	type = Models.skinType;
+	set  = &model->limbs[type & 0x3];
 	num  = HUMAN_BASE_VERTICES + (type == SKIN_64x32 ? HUMAN_HAT32_VERTICES : HUMAN_HAT64_VERTICES);
 	Model_LockVB(e, num);
 
@@ -973,9 +972,9 @@ static void HumanModel_DrawCore(struct Entity* e, struct ModelSet* model, cc_boo
 	if (opaqueBody) {
 		/* human model draws the body opaque so players can't have invisible skins */
 		Gfx_SetAlphaTest(false);
-		Gfx_DrawVb_IndexedTris_Range(HUMAN_BASE_VERTICES, 0, DRAW_HINT_NONE);
+		Gfx_DrawVb_IndexedTris_Range(HUMAN_BASE_VERTICES, 0);
 		Gfx_SetAlphaTest(true);
-		Gfx_DrawVb_IndexedTris_Range(num - HUMAN_BASE_VERTICES, HUMAN_BASE_VERTICES, DRAW_HINT_NONE);
+		Gfx_DrawVb_IndexedTris_Range(num - HUMAN_BASE_VERTICES, HUMAN_BASE_VERTICES);
 	} else {
 		Gfx_DrawVb_IndexedTris(num);
 	}
@@ -1156,7 +1155,7 @@ static float HumanModel_GetEyeY(struct Entity* e)  { return 26.0f/16.0f; }
 static void HumanModel_GetSize(struct Entity* e)   { Model_RetSize(8.6f,28.1f,8.6f); }
 static void HumanModel_GetBounds(struct Entity* e) { Model_RetAABB(-8,0,-4, 8,32,4); }
 
-static CC_BIG_VAR struct ModelVertex human_vertices[MODEL_BOX_VERTICES * (7 + 7 + 4)];
+static struct ModelVertex human_vertices[MODEL_BOX_VERTICES * (7 + 7 + 4)];
 static struct ModelTex human_tex = { "char.png" };
 static struct Model  human_model = { 
 	"humanoid", human_vertices, &human_tex,
@@ -1451,7 +1450,7 @@ static void ChickenModel_MakeParts(void) {
 }
 
 static void ChickenModel_Draw(struct Entity* e) {
-	PackedCol color = Models.Cols[0];
+	PackedCol col = Models.Cols[0];
 	int i;
 	Model_ApplyTexture(e);
 	Model_LockVB(e, CHICKEN_MAX_VERTICES);
@@ -1466,7 +1465,7 @@ static void ChickenModel_Draw(struct Entity* e) {
 
 	for (i = 0; i < FACE_COUNT; i++) 
 	{
-		Models.Cols[i] = PackedCol_Scale(color, 0.7f);
+		Models.Cols[i] = PackedCol_Scale(col, 0.7f);
 	}
 
 	Model_DrawRotate(e->Anim.LeftLegX,  0, 0, &chicken_leftLeg,  false);
@@ -1790,7 +1789,7 @@ static void SheepModel_Draw(struct Entity* e) {
 	Model_UnlockVB();
 	Gfx_DrawVb_IndexedTris(SHEEP_BODY_VERTICES);
 	Gfx_BindTexture(fur_tex.texID);
-	Gfx_DrawVb_IndexedTris_Range(SHEEP_FUR_VERTICES, SHEEP_BODY_VERTICES, DRAW_HINT_NONE);
+	Gfx_DrawVb_IndexedTris_Range(SHEEP_FUR_VERTICES, SHEEP_BODY_VERTICES);
 }
 
 static float SheepModel_GetNameY(struct Entity* e) { return 1.48125f; }
@@ -2093,13 +2092,13 @@ static TextureLoc BlockModel_GetTex(Face face) {
 
 static void BlockModel_SpriteZQuad(cc_bool firstPart, cc_bool mirror) {
 	struct VertexTextured* ptr, v;
-	PackedCol color; int tmp;
+	PackedCol col; int tmp;
 	float xz1, xz2;
 	TextureLoc loc = BlockModel_GetTex(FACE_ZMAX);
 	TextureRec rec = Atlas1D_TexRec(loc, 1, &tmp);
 
-	color = Models.Cols[0];
-	Block_Tint(color, bModel_block);
+	col = Models.Cols[0];
+	Block_Tint(col, bModel_block);
 
 	xz1 = 0.0f; xz2 = 0.0f;
 	if (firstPart) { /* Need to break into two quads for when drawing a sprite model in hand. */
@@ -2111,7 +2110,7 @@ static void BlockModel_SpriteZQuad(cc_bool firstPart, cc_bool mirror) {
 	}
 
 	ptr   = bModel_vertices;
-	v.Col = color;
+	v.Col = col;
 
 	v.x = xz1; v.y = 0.0f; v.z = xz1; v.U = rec.u2; v.V = rec.v2; *ptr++ = v;
 	           v.y = 1.0f;                          v.V = rec.v1; *ptr++ = v;
@@ -2123,13 +2122,13 @@ static void BlockModel_SpriteZQuad(cc_bool firstPart, cc_bool mirror) {
 
 static void BlockModel_SpriteXQuad(cc_bool firstPart, cc_bool mirror) {
 	struct VertexTextured* ptr, v;
-	PackedCol color; int tmp;
+	PackedCol col; int tmp;
 	float x1, x2, z1, z2;
 	TextureLoc loc = BlockModel_GetTex(FACE_XMAX);
 	TextureRec rec = Atlas1D_TexRec(loc, 1, &tmp);
 
-	color = Models.Cols[0];
-	Block_Tint(color, bModel_block);
+	col = Models.Cols[0];
+	Block_Tint(col, bModel_block);
 
 	x1 = 0.0f; x2 = 0.0f; z1 = 0.0f; z2 = 0.0f;
 	if (firstPart) {
@@ -2141,7 +2140,7 @@ static void BlockModel_SpriteXQuad(cc_bool firstPart, cc_bool mirror) {
 	}
 
 	ptr   = bModel_vertices;
-	v.Col = color;
+	v.Col = col;
 
 	v.x = x1; v.y = 0.0f; v.z = z1; v.U = rec.u2; v.V = rec.v2; *ptr++ = v;
 	          v.y = 1.0f;                         v.V = rec.v1; *ptr++ = v;
@@ -2204,7 +2203,7 @@ static void BlockModel_DrawParts(void) {
 
 		/* Different 1D flush texture, flush current vertices */
 		Atlas1D_Bind(lastTexIndex);
-		Gfx_DrawVb_IndexedTris_Range(count, offset, DRAW_HINT_NONE);
+		Gfx_DrawVb_IndexedTris_Range(count, offset);
 		lastTexIndex = bModel_texIndices[i];
 			
 		offset += count;
@@ -2214,7 +2213,7 @@ static void BlockModel_DrawParts(void) {
 	/* Leftover vertices */
 	if (!count) return;
 	Atlas1D_Bind(lastTexIndex); 
-	Gfx_DrawVb_IndexedTris_Range(count, offset, DRAW_HINT_NONE);
+	Gfx_DrawVb_IndexedTris_Range(count, offset);
 }
 
 static void BlockModel_Draw(struct Entity* e) {

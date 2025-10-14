@@ -4,11 +4,11 @@
 CC_BEGIN_HEADER
 
 /* Manipulates a packed 32 bit RGBA colour, in a format suitable for the native 3D graphics API vertex colours.
-   Copyright 2014-2025 ClassiCube | Licensed under BSD-3
+   Copyright 2014-2023 ClassiCube | Licensed under BSD-3
 */
 
 typedef cc_uint32 PackedCol;
-#if (CC_GFX_BACKEND == CC_GFX_BACKEND_D3D9) || defined CC_BUILD_XBOX || defined CC_BUILD_DREAMCAST || defined CC_BUILD_XBOX360
+#if (CC_GFX_BACKEND == CC_GFX_BACKEND_D3D9) || defined CC_BUILD_XBOX || defined CC_BUILD_DREAMCAST
 	#define PACKEDCOL_B_SHIFT  0
 	#define PACKEDCOL_G_SHIFT  8
 	#define PACKEDCOL_R_SHIFT 16

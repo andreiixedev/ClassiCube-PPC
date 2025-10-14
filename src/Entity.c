@@ -22,7 +22,6 @@
 #include "Errors.h"
 #include "Utils.h"
 #include "EntityRenderers.h"
-#include "Protocol.h"
 
 const char* const NameMode_Names[NAME_MODE_COUNT]   = { "None", "Hovered", "All", "AllHovered", "AllUnscaled" };
 const char* const ShadowMode_Names[SHADOW_MODE_COUNT] = { "None", "SnapToBlock", "Circle", "CircleAll" };
@@ -43,7 +42,6 @@ void Entity_Init(struct Entity* e) {
 	e->Flags      = ENTITY_FLAG_HAS_MODELVB;
 	e->uScale     = 1.0f;
 	e->vScale     = 1.0f;
-	e->PushStrength = 1.0f;
 	e->_skinReqID = 0;
 	e->SkinRaw[0] = '\0';
 	e->NameRaw[0] = '\0';
@@ -67,15 +65,15 @@ void Entity_GetTransform(struct Entity* e, Vec3 pos, Vec3 scale, struct Matrix* 
 	struct Matrix tmp;
 	Matrix_Scale(m, scale.x, scale.y, scale.z);
 
-	if (e->RotZ != 0.0f) {
+	if (e->RotZ) {
 		Matrix_RotateZ( &tmp, -e->RotZ * MATH_DEG2RAD);
 		Matrix_MulBy(m, &tmp);
 	}
-	if (e->RotX != 0.0f) {
+	if (e->RotX) {
 		Matrix_RotateX( &tmp, -e->RotX * MATH_DEG2RAD);
 		Matrix_MulBy(m, &tmp);
 	}
-	if (e->RotY != 0.0f) {
+	if (e->RotY) {
 		Matrix_RotateY( &tmp, -e->RotY * MATH_DEG2RAD);
 		Matrix_MulBy(m, &tmp);
 	}
@@ -207,52 +205,37 @@ cc_bool Entity_TouchesAnyWater(struct Entity* e) {
 /*########################################################################################################################*
 *------------------------------------------------------Entity skins-------------------------------------------------------*
 *#########################################################################################################################*/
+static struct Entity* Entity_FirstOtherWithSameSkinAndFetchedSkin(struct Entity* except) {
+	struct Entity* e;
+	cc_string skin, eSkin;
+	int i;
+
+	skin = String_FromRawArray(except->SkinRaw);
+	for (i = 0; i < ENTITIES_MAX_COUNT; i++) {
+		if (!Entities.List[i] || Entities.List[i] == except) continue;
+
+		e     = Entities.List[i];
+		eSkin = String_FromRawArray(e->SkinRaw);
+		if (e->SkinFetchState && String_Equals(&skin, &eSkin)) return e;
+	}
+	return NULL;
+}
+
 /* Copies skin data from another entity */
 static void Entity_CopySkin(struct Entity* dst, struct Entity* src) {
-	dst->TextureId	= src->TextureId;	
-	dst->SkinType	= src->SkinType;
-	dst->uScale		= src->uScale;
-	dst->vScale		= src->vScale;
+	dst->TextureId    = src->TextureId;	
+	dst->SkinType     = src->SkinType;
+	dst->uScale       = src->uScale;
+	dst->vScale       = src->vScale;
+	dst->MobTextureId = src->MobTextureId;
 }
 
 /* Resets skin data for the given entity */
 static void Entity_ResetSkin(struct Entity* e) {
+	e->uScale = 1.0f; e->vScale = 1.0f;
+	e->MobTextureId = 0;
 	e->TextureId    = 0;
-	e->uScale 		= 1.0f; 
-	e->vScale 		= 1.0f;
-}
-
-static void CheckSkin_Unchecked(struct Entity* e) {
-	cc_string skin, eSkin;
-	struct Entity* other;
-	cc_uint8 flags;
-	cc_result res;
-	int i;
-
-	skin = String_FromRawArray(e->SkinRaw);
-	for (i = 0; i < ENTITIES_MAX_COUNT; i++) 
-	{
-		other = Entities.List[i];
-		if (!other) continue;
-		/* Don't bother checking for other == e, as e->state is UNCHECKED anyways */
-		if (other->SkinFetchState < SKIN_FETCH_DOWNLOADING) continue;
-
-		eSkin = String_FromRawArray(other->SkinRaw);
-		if (!String_Equals(&skin, &eSkin)) continue;
-
-		/* Another entity with same skin either finished or is downloading */
-		if (other->SkinFetchState == SKIN_FETCH_COMPLETED) {
-			Entity_CopySkin(e, other);
-			e->SkinFetchState = SKIN_FETCH_COMPLETED;
-		} else {
-			e->SkinFetchState = SKIN_FETCH_WAITINGFOR;
-		}
-		return;
-	}
-
-	flags = e == &LocalPlayer_Instances[0].Base ? HTTP_FLAG_NOCACHE : 0;
-	e->_skinReqID     = Http_AsyncGetSkin(&skin, flags);
-	e->SkinFetchState = SKIN_FETCH_DOWNLOADING;
+	e->SkinType     = SKIN_64x32;
 }
 
 /* Copies or resets skin data for all entity with same skin */
@@ -260,11 +243,11 @@ static void Entity_SetSkinAll(struct Entity* source, cc_bool reset) {
 	struct Entity* e;
 	cc_string skin, eSkin;
 	int i;
-	
-	skin = String_FromRawArray(source->SkinRaw);
 
-	for (i = 0; i < ENTITIES_MAX_COUNT; i++) 
-	{
+	skin = String_FromRawArray(source->SkinRaw);
+	source->MobTextureId = Utils_IsUrlPrefix(&skin) ? source->TextureId : 0;
+
+	for (i = 0; i < ENTITIES_MAX_COUNT; i++) {
 		if (!Entities.List[i]) continue;
 
 		e     = Entities.List[i];
@@ -317,9 +300,7 @@ static cc_result EnsurePow2Skin(struct Entity* e, struct Bitmap* bmp) {
 	height = Math_NextPowOf2(bmp->height);
 	if (width == bmp->width && height == bmp->height) return 0;
 
-	scaled.width  = width; 
-	scaled.height = height;
-	scaled.scan0  = (BitmapCol*)Mem_TryAllocCleared(width * height, BITMAPCOLOR_SIZE);
+	Bitmap_TryAllocate(&scaled, width, height);
 	if (!scaled.scan0) return ERR_OUT_OF_MEMORY;
 
 	e->uScale = (float)bmp->width  / width;
@@ -342,6 +323,7 @@ static cc_result ApplySkin(struct Entity* e, struct Bitmap* bmp, struct Stream* 
 	if ((res = Png_Decode(bmp, src))) return res;
 
 	Gfx_DeleteTexture(&e->TextureId);
+	Entity_SetSkinAll(e, true);
 	if ((res = EnsurePow2Skin(e, bmp))) return res;
 	e->SkinType = Utils_CalcSkinType(bmp);
 
@@ -370,79 +352,47 @@ static void LogInvalidSkin(cc_result res, const cc_string* skin, const cc_uint8*
 	Logger_WarnFunc(&msg);
 }
 
-static void CheckSkin_Downloading(struct Entity* e) {
+static void Entity_CheckSkin(struct Entity* e) {
+	struct Entity* first;
 	struct HttpRequest item;
 	struct Stream mem;
 	struct Bitmap bmp;
 	cc_string skin;
+	cc_uint8 flags;
 	cc_result res;
 
-	if (!Http_GetResult(e->_skinReqID, &item)) return;
-	Entity_SetSkinAll(e, true);
-	if (!item.success) return;
-
-	Stream_ReadonlyMemory(&mem, item.data, item.size);
-	skin = String_FromRawArray(e->SkinRaw);
-
-	if ((res = ApplySkin(e, &bmp, &mem, &skin))) {
-		LogInvalidSkin(res, &skin, item.data, item.size);
-	}
-
-	Mem_Free(bmp.scan0);
-	HttpRequest_Free(&item);
-}
-
-static void Entity_CheckSkin(struct Entity* e) {
 	/* Don't check skin if don't have to */
 	if (!e->Model->usesSkin) return;
+	if (e->SkinFetchState == SKIN_FETCH_COMPLETED) return;
+	skin = String_FromRawArray(e->SkinRaw);
 
-	switch (e->SkinFetchState)
-	{
-	case SKIN_FETCH_UNCHECKED:
-		CheckSkin_Unchecked(e); return;
-	case SKIN_FETCH_WAITINGFOR:
-		return; /* Waiting for another entity to download it */
-	case SKIN_FETCH_DOWNLOADING:
-		CheckSkin_Downloading(e); return;
-	case SKIN_FETCH_COMPLETED:
-		return; /* Nothing to do as skin has been downloaded */
+	if (!e->SkinFetchState) {
+		first = Entity_FirstOtherWithSameSkinAndFetchedSkin(e);
+		flags = e == &LocalPlayer_Instances[0].Base ? HTTP_FLAG_NOCACHE : 0;
+
+		if (!first) {
+			e->_skinReqID     = Http_AsyncGetSkin(&skin, flags);
+			e->SkinFetchState = SKIN_FETCH_DOWNLOADING;
+		} else {
+			Entity_CopySkin(e, first);
+			e->SkinFetchState = SKIN_FETCH_COMPLETED;
+			return;
+		}
 	}
-}
 
-/* Returns whether this entity is currently waiting on given skin to download */
-static CC_INLINE cc_bool IsWaitingForSkinToDownload(struct Entity* e, cc_string* skin) {
-	cc_string eSkin;
-	if (e->SkinFetchState != SKIN_FETCH_WAITINGFOR) return false;
+	if (!Http_GetResult(e->_skinReqID, &item)) return;
 
-	eSkin = String_FromRawArray(e->SkinRaw);
-	return String_Equals(skin, &eSkin);
-}
+	if (!item.success) {
+		Entity_SetSkinAll(e, true);
+	} else {
+		Stream_ReadonlyMemory(&mem, item.data, item.size);
 
-/* Transfers skin downloading responsibility to another entity */
-static void TransferSkinDownload(struct Entity* e, struct Entity* src) {
-	e->SkinFetchState = SKIN_FETCH_DOWNLOADING;
-	e->_skinReqID     = src->_skinReqID;
-}
-
-/* Either transfers skin download or cancels it altogether */
-static void DerefDownloadingSkin(struct Entity* src) {
-	struct Entity* e;
-	cc_string skin = String_FromRawArray(src->SkinRaw);
-	int i;
-
-	for (i = 0; i < ENTITIES_MAX_COUNT; i++) 
-	{
-		if (!Entities.List[i]) continue;
-		e  = Entities.List[i];
-
-		if (!IsWaitingForSkinToDownload(e, &skin)) continue;
-		Platform_Log1("Transferring skin download: %s", &skin);
-		TransferSkinDownload(e, src);
-		return;
+		if ((res = ApplySkin(e, &bmp, &mem, &skin))) {
+			LogInvalidSkin(res, &skin, item.data, item.size);
+		}
+		Mem_Free(bmp.scan0);
 	}
-	
-	Platform_Log1("Cancelling skin download: %s", &skin);
-	Http_TryCancel(src->_skinReqID);
+	HttpRequest_Free(&item);
 }
 
 /* Returns true if no other entities are sharing this skin texture */
@@ -460,10 +410,9 @@ static cc_bool CanDeleteTexture(struct Entity* except) {
 
 CC_NOINLINE static void DeleteSkin(struct Entity* e) {
 	if (CanDeleteTexture(e)) Gfx_DeleteTexture(&e->TextureId);
-	if (e->SkinFetchState == SKIN_FETCH_DOWNLOADING) DerefDownloadingSkin(e);
 
 	Entity_ResetSkin(e);
-	e->SkinFetchState = SKIN_FETCH_UNCHECKED;
+	e->SkinFetchState = 0;
 }
 
 void Entity_SetSkin(struct Entity* e, const cc_string* skin) {
@@ -472,11 +421,9 @@ void Entity_SetSkin(struct Entity* e, const cc_string* skin) {
 
 	if (Utils_IsUrlPrefix(skin)) {
 		tmp = *skin;
-		e->NonHumanSkin = true;
 	} else {
 		String_InitArray(tmp, tmpBuffer);
 		String_AppendColorless(&tmp, skin);
-		e->NonHumanSkin = false;
 	}
 	String_CopyToRawArray(e->SkinRaw, &tmp);
 }
@@ -567,7 +514,7 @@ int Entities_GetClosest(struct Entity* src) {
 		if (!e || e == &Entities.CurPlayer->Base) continue;
 		if (!Intersection_RayIntersectsRotatedBox(eyePos, dir, e, &t0, &t1)) continue;
 
-		if (targetID < 0 || t0 < closestDist) {
+		if (targetID == -1 || t0 < closestDist) {
 			closestDist = t0;
 			targetID    = i;
 		}
@@ -759,6 +706,7 @@ static void LocalPlayer_Tick(struct Entity* e, float delta) {
 static void LocalPlayer_RenderModel(struct Entity* e, float delta, float t) {
 	struct LocalPlayer* p = (struct LocalPlayer*)e;
 	AnimatedComp_GetCurrent(e, t);
+	TiltComp_GetCurrent(p, &p->Tilt, t);
 
 	if (!Camera.Active->isThirdPerson && p == Entities.CurPlayer) return;
 	Model_Render(e->Model, e);
@@ -852,9 +800,7 @@ static void LocalPlayers_OnNewMap(void) {
 }
 
 static cc_bool LocalPlayer_IsSolidCollide(BlockID b) { return Blocks.Collide[b] == COLLIDE_SOLID; }
-
 static void LocalPlayer_DoRespawn(struct LocalPlayer* p) {
-	struct EntityLocation* prev;
 	struct LocationUpdate update;
 	struct AABB bb;
 	Vec3 spawn = p->Spawn;
@@ -882,9 +828,6 @@ static void LocalPlayer_DoRespawn(struct LocalPlayer* p) {
 			bb.Min.y += 1.0f; bb.Max.y += 1.0f;
 		}
 	}
-
-	prev = &p->Base.prev;
-	CPE_SendNotifyPositionAction(3, prev->pos.x, prev->pos.y, prev->pos.z);
 
 	/* Adjust the position to be slightly above the ground, so that */
 	/*  it's obvious to the player that they are being respawned */
@@ -941,8 +884,6 @@ static cc_bool LocalPlayer_HandleSetSpawn(int key, struct InputDevice* device) {
 		
 		p->SpawnYaw   = p->Base.Yaw;
 		if (!Game_ClassicMode) p->SpawnPitch = p->Base.Pitch;
-
-		CPE_SendNotifyPositionAction(4, p->Spawn.x, p->Spawn.y, p->Spawn.z);
 	}
 	return LocalPlayer_HandleRespawn(key, device);
 }

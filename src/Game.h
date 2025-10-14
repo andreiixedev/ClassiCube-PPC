@@ -4,7 +4,7 @@
 CC_BEGIN_HEADER
 
 /* Represents the game and related structures.
-   Copyright 2014-2025 ClassiCube | Licensed under BSD-3
+   Copyright 2014-2023 ClassiCube | Licensed under BSD-3
 */
 
 struct Bitmap;
@@ -24,7 +24,7 @@ CC_VAR extern struct _GameData {
 } Game;
 
 extern struct RayTracer Game_SelectedPos;
-extern cc_bool Game_UseCPEBlocks, Game_Running;
+extern cc_bool Game_UseCPEBlocks;
 
 extern cc_string Game_Username;
 extern cc_string Game_Mppass;
@@ -37,11 +37,9 @@ extern cc_string Game_Mppass;
 	#define Game_NumStates 1
 #endif
 
-#if defined CC_BUILD_N64 || defined CC_BUILD_PS1 || defined CC_BUILD_SATURN
+#if defined CC_BUILD_N64
     #define DEFAULT_VIEWDIST 20
-#elif defined CC_BUILD_SYMBIAN
-	#define DEFAULT_VIEWDIST 64
-#elif defined CC_BUILD_NDS
+#elif defined CC_BUILD_NDS || defined CC_BUILD_PS1 || defined CC_BUILD_SATURN
     #define DEFAULT_VIEWDIST 192
 #else
     #define DEFAULT_VIEWDIST 512
@@ -126,12 +124,8 @@ cc_bool Game_ValidateBitmap(const cc_string* file, struct Bitmap* bmp);
 /*   NOTE: Game_ValidateBitmap should nearly always be used instead of this */
 cc_bool Game_ValidateBitmapPow2(const cc_string* file, struct Bitmap* bmp);
 
-/* Initialises and loads state, and creates the main game window */
-void Game_Setup(void);
-/* Renders/Does the next frame of the game */
-/* NOTE: Shouldn't be called after Game_Running is set to false */
-void Game_RenderFrame(void);
-void Game_Free(void);
+/* Runs the main game loop until the window is closed. */
+void Game_Run(int width, int height, const cc_string* title);
 /* Whether the game should be allowed to automatically close */
 cc_bool Game_ShouldClose(void);
 

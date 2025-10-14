@@ -5,7 +5,7 @@ CC_BEGIN_HEADER
 
 /* 
 Provides various utility functions
-Copyright 2014-2025 ClassiCube | Licensed under BSD-3
+Copyright 2014-2023 ClassiCube | Licensed under BSD-3
 */
 
 struct Bitmap;
@@ -13,7 +13,7 @@ struct StringsBuffer;
 /* Represents a particular instance in time in some timezone. Not necessarily UTC time. */
 /* NOTE: TimeMS and DateTime_CurrentUTC() should almost always be used instead. */
 /* This struct should only be used when actually needed. (e.g. log message time) */
-struct cc_datetime {
+struct DateTime {
 	int year;   /* Year,   ranges from 0 to 65535 */
 	int month;  /* Month,  ranges from 1 to 12 */
 	int day;    /* Day,    ranges from 1 to 31 */
@@ -32,7 +32,7 @@ CC_NOINLINE int Utils_ParseEnum(const cc_string* text, int defValue, const char*
 /* Returns whether value starts with http:// or https:// */
 cc_bool Utils_IsUrlPrefix(const cc_string* value);
 
-/* Creates the directory if it doesn't exist. (logs failure using Logger_IOWarn2) */
+/* Creates the directory if it doesn't exist. (logs failure using Logger_SysWarn2) */
 cc_bool Utils_EnsureDirectory(const char* dirName);
 /* Gets the filename portion of a path. (e.g. "dir/file.txt" -> "file.txt") */
 void Utils_UNSAFE_GetFilename(STRING_REF cc_string* path);

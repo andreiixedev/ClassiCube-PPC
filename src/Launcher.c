@@ -25,7 +25,7 @@
 #include "Gui.h"
 
 struct LScreen* Launcher_Active;
-cc_bool Launcher_ShouldStop, Launcher_ShouldUpdate;
+cc_bool Launcher_ShouldExit, Launcher_ShouldUpdate;
 static char hashBuffer[STRING_SIZE], userBuffer[STRING_SIZE];
 cc_string Launcher_AutoHash = String_FromArray(hashBuffer);
 cc_string Launcher_Username = String_FromArray(userBuffer);
@@ -117,7 +117,7 @@ cc_bool Launcher_StartGame(const cc_string* user, const cc_string* mppass, const
 	res = Process_StartGame2(args, numArgs);
 	if (res) { Logger_SysWarn(res, "starting game"); return false; }
 
-	Launcher_ShouldStop = Platform_IsSingleProcess() || Options_GetBool(LOPT_AUTO_CLOSE, false);
+	Launcher_ShouldExit = Platform_SingleProcess || Options_GetBool(LOPT_AUTO_CLOSE, false);
 
 	return true;
 }
@@ -190,9 +190,9 @@ static cc_bool IsShutdown(int key) {
 }
 
 static void OnInputDown(void* obj, int key, cc_bool was, struct InputDevice* device) {
-	if (Input.DownHook && Input.DownHook(key, device)) return;
+	if (Input.DownHook) { Input.DownHook(key, device); return; }
 
-	if (IsShutdown(key)) Launcher_ShouldStop = true;
+	if (IsShutdown(key)) Launcher_ShouldExit = true;
 	Launcher_Active->KeyDown(Launcher_Active, key, was, device);
 }
 
@@ -201,7 +201,7 @@ static void OnMouseWheel(void* obj, float delta) {
 }
 
 static void OnClosing(void* obj) {
-	Launcher_ShouldStop = true;
+	Launcher_ShouldExit = true;
 }
 
 
@@ -220,7 +220,17 @@ static void Launcher_Init(void) {
 	Utils_EnsureDirectory("audio");
 }
 
-void Launcher_Setup(void) {
+static void Launcher_Free(void) {
+	Event_UnregisterAll();
+	LBackend_Free();
+	Flags_Free();
+	hasBitmappedFont = false;
+
+	CloseActiveScreen();
+	LBackend_FreeFramebuffer();
+}
+
+void Launcher_Run(void) {
 	static const cc_string title = String_FromConst(GAME_APP_TITLE);
 	Window_Create2D(640, 400);
 #ifdef CC_BUILD_MOBILE
@@ -257,9 +267,7 @@ void Launcher_Setup(void) {
 	Launcher_TryLoadTexturePack();
 
 	Http_Component.Init();
-#ifdef CC_BUILD_NETWORKING
 	CheckUpdateTask_Run();
-#endif
 
 #ifdef CC_BUILD_RESOURCES
 	Resources_CheckExistence();
@@ -272,31 +280,20 @@ void Launcher_Setup(void) {
 #else
 	MainScreen_SetActive();
 #endif
-}
 
-cc_bool Launcher_Tick(void) {
-	/* NOTE: Make sure to keep delay same as hardcoded delay in RunLauncher in main_impl.h */
-	Window_ProcessEvents(10 / 1000.0f);
-	Gamepad_Tick(10 / 1000.0f);
-	if (!Window_Main.Exists || Launcher_ShouldStop) return false;
+	for (;;) {
+		Window_ProcessEvents(10 / 1000.0f);
+		Gamepad_Tick(10 / 1000.0f);
+		if (!Window_Main.Exists || Launcher_ShouldExit) break;
 
-	Launcher_Active->Tick(Launcher_Active);
-	LBackend_Tick();
-	return true;
-}
+		Launcher_Active->Tick(Launcher_Active);
+		LBackend_Tick();
+		Thread_Sleep(10);
+	}
 
-void Launcher_Finish(void) {
 	Options_SaveIfChanged();
-	
-	Event_UnregisterAll();
-	LBackend_Free();
-	Flags_Free();
-
-	CloseActiveScreen();
-	LBackend_FreeFramebuffer();
-
-	hasBitmappedFont    = false;
-	Launcher_ShouldStop = false;
+	Launcher_Free();
+	Launcher_ShouldExit = false;
 
 #ifdef CC_BUILD_MOBILE
 	/* Reset components */
@@ -310,6 +307,7 @@ void Launcher_Finish(void) {
 		cc_result res = Updater_Start(&action);
 		if (res) Logger_SysWarn(res, action);
 	}
+	Window_Destroy();
 }
 
 
@@ -463,11 +461,9 @@ static cc_result Launcher_ProcessZipEntry(const cc_string* path, struct Stream* 
 static cc_result ExtractTexturePack(const cc_string* path) {
 	struct ZipEntry entries[32];
 	struct Stream stream;
-	cc_filepath raw_path;
 	cc_result res;
 
-	Platform_EncodePath(&raw_path, path);
-	res = Stream_OpenPath(&stream, &raw_path);
+	res = Stream_OpenFile(&stream, path);
 	if (res == ReturnCode_FileNotFound) return res;
 	if (res) { Logger_SysWarn(res, "opening texture pack"); return res; }
 
@@ -482,7 +478,6 @@ static cc_result ExtractTexturePack(const cc_string* path) {
 
 void Launcher_TryLoadTexturePack(void) {
 	cc_string path; char pathBuffer[FILENAME_SIZE];
-	const char* default_path;
 	cc_string texPack;
 
 	/* TODO: Not duplicate TexturePack functionality */
@@ -493,9 +488,8 @@ void Launcher_TryLoadTexturePack(void) {
 	}
 
 	/* user selected texture pack is missing some required .png files */
-	if (!hasBitmappedFont || dirtBmp.scan0 == NULL) {
-		TexturePack_ExtractDefault(ExtractTexturePack, &default_path);
-	}
+	if (!hasBitmappedFont || dirtBmp.scan0 == NULL)
+		TexturePack_ExtractDefault(ExtractTexturePack);
 
 	LBackend_UpdateTitleFont();
 }

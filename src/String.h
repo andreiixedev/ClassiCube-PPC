@@ -8,7 +8,7 @@ Provides various string related operations
    Also provides conversions betweens strings and numbers
    Also provides converting code page 437 indices to/from unicode
    Also provides wrapping a single line of text into multiple lines
-Copyright 2014-2025 ClassiCube | Licensed under BSD-3
+Copyright 2014-2023 ClassiCube | Licensed under BSD-3
 */
 
 #define STRING_INT_CHARS 24
@@ -51,7 +51,7 @@ CC_API cc_string String_FromReadonly(STRING_REF const char* buffer);
 CC_API void String_Copy(cc_string* dst, const cc_string* src);
 /* Copies up to capacity characters from src into dst. Appends \0 after if src->length is < capacity. */
 /* NOTE: This means the buffer MAY NOT be null-terminated. Only use with String_FromRawArray. */
-int String_CopyToRaw(char* dst, int capacity, const cc_string* src);
+CC_API void String_CopyToRaw(char* dst, int capacity, const cc_string* src);
 /* Calls String_CopyToRaw on a compile time array. */
 #define String_CopyToRawArray(buffer, src) String_CopyToRaw(buffer, sizeof(buffer), src)
 

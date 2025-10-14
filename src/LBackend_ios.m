@@ -598,14 +598,19 @@ static void LTable_UpdateCell(UITableView* table, UITableViewCell* cell, int row
 }
 
 // TODO only redraw flags
-void LBackend_TableFlagAdded(struct LTable* w) {
-	UITableView* tbl = (__bridge UITableView*)w->meta;
-	
-	// trying to update cell.imageView.image doesn't seem to work,
-	// so pointlessly reload entire table data instead
-	NSIndexPath* selected = [tbl indexPathForSelectedRow];
-	[tbl reloadData];
-	[tbl selectRowAtIndexPath:selected animated:NO scrollPosition:UITableViewScrollPositionNone];
+static void OnFlagsChanged(void) {
+	struct LScreen* s = Launcher_Active;
+    for (int i = 0; i < s->numWidgets; i++)
+    {
+		if (s->widgets[i]->type != LWIDGET_TABLE) continue;
+        UITableView* tbl = (__bridge UITableView*)s->widgets[i]->meta;
+    
+		// trying to update cell.imageView.image doesn't seem to work,
+		// so pointlessly reload entire table data instead
+		NSIndexPath* selected = [tbl indexPathForSelectedRow];
+		[tbl reloadData];
+		[tbl selectRowAtIndexPath:selected animated:NO scrollPosition:UITableViewScrollPositionNone];
+    }
 }
 
 /*########################################################################################################################*
@@ -616,7 +621,8 @@ void LBackend_DecodeFlag(struct Flag* flag, cc_uint8* data, cc_uint32 len) {
 	UIImage* img = [UIImage imageWithData:ns_data];
 	if (!img) return;
 	
-	flag->meta = CFBridgingRetain(img);  
+    flag->meta = CFBridgingRetain(img);  
+	OnFlagsChanged();
 }
 
 static void LBackend_LayoutDimensions(struct LWidget* w, CGRect* r) {

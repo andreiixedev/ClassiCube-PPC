@@ -5,7 +5,7 @@
 CC_BEGIN_HEADER
 
 /*  Performs a variety of drawing operations on bitmaps, and converts bitmaps into textures.
-	Copyright 2014-2025 ClassiCube | Licensed under BSD-3
+	Copyright 2014-2023 ClassiCube | Licensed under BSD-3
 */
 
 enum FONT_FLAGS { FONT_FLAGS_NONE = 0x00, FONT_FLAGS_BOLD = 0x01, FONT_FLAGS_UNDERLINE = 0x02, FONT_FLAGS_PADDING = 0x04 };
@@ -45,7 +45,6 @@ CC_API void Context2D_Wrap(struct Context2D* ctx, struct Bitmap* bmp);
 CC_API void Context2D_Free(struct Context2D* ctx);
 /* Creates a texture consisting of the pixels from the backing bitmap of the given 2D context */
 CC_API void Context2D_MakeTexture(struct Texture* tex, struct Context2D* ctx);
-float Context2D_CalcUV(int pixels, int axisLen);
 
 /* Draws text using the given font at the given coordinates */
 CC_API void Context2D_DrawText(struct Context2D* ctx, struct DrawTextArgs* args, int x, int y);

@@ -88,7 +88,7 @@ static void ResetHeldState(void) {
 
 	held_entity.SkinType     = p->SkinType;
 	held_entity.TextureId    = p->TextureId;
-	held_entity.NonHumanSkin = p->NonHumanSkin;
+	held_entity.MobTextureId = p->MobTextureId;
 	held_entity.uScale       = p->uScale;
 	held_entity.vScale       = p->vScale;
 }
@@ -118,7 +118,7 @@ static void OnProjectionChanged(void* obj) {
 	https://dl.dropboxusercontent.com/s/pdq79gkzntquld1/slowBreakRotate2.gif
 	https://dl.dropboxusercontent.com/s/w1ego7cy7e5nrk1/slowBreakFull.gif
 
-	https://github.com/ClassiCube/ClassicalSharp/wiki/Dig-animation-details
+	https://github.com/UnknownShadow200/ClassicalSharp/wiki/Dig-animation-details
 */
 static void HeldBlockRenderer_DigAnimation(void) {
 	float sinHalfCircle, sinHalfCircleWeird;

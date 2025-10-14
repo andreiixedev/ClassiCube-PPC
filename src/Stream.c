@@ -114,39 +114,33 @@ static cc_result Stream_FileLength(struct Stream* s, cc_uint32* length) {
 
 cc_result Stream_OpenFile(struct Stream* s, const cc_string* path) {
 	cc_filepath str;
+	cc_file file;
+	cc_result res;
 	Platform_EncodePath(&str, path);
 
-	return Stream_OpenPath(s, &str);
+	res = File_Open(&file, &str);
+	Stream_FromFile(s, file);
+	return res;
 }
 
 cc_result Stream_CreateFile(struct Stream* s, const cc_string* path) {
 	cc_filepath str;
-	Platform_EncodePath(&str, path);
-
-	return Stream_CreatePath(s, &str);
-}
-
-cc_result Stream_OpenPath(struct Stream* s, const cc_filepath* path) {
-	cc_file file;
-	cc_result res = File_Open(&file, path);
-
-	Stream_FromFile(s, file);
-	return res;
-}
-
-cc_result Stream_CreatePath(struct Stream* s, const cc_filepath* path) {
-	cc_file file;
-	cc_result res = File_Create(&file, path);
-
-	Stream_FromFile(s, file);
-	return res;
-}
-
-cc_result Stream_AppendPath(struct Stream* s, const cc_filepath* path) {
 	cc_file file;
 	cc_result res;
+	Platform_EncodePath(&str, path);
 
-	if ((res = File_OpenOrCreate(&file, path)))        return res;
+	res = File_Create(&file, &str);
+	Stream_FromFile(s, file);
+	return res;
+}
+
+cc_result Stream_AppendFile(struct Stream* s, const cc_string* path) {
+	cc_filepath str;
+	cc_file file;
+	cc_result res;
+	Platform_EncodePath(&str, path);
+
+	if ((res = File_OpenOrCreate(&file, &str)))        return res;
 	if ((res = File_Seek(file, 0, FILE_SEEKFROM_END))) return res;
 	Stream_FromFile(s, file);
 	return res;
@@ -155,10 +149,8 @@ cc_result Stream_AppendPath(struct Stream* s, const cc_filepath* path) {
 cc_result Stream_WriteAllTo(const cc_string* path, const cc_uint8* data, cc_uint32 length) {
 	struct Stream stream;
 	cc_result res, closeRes;
-	cc_filepath raw_path;
 
-	Platform_EncodePath(&raw_path, path);
-	res = Stream_CreatePath(&stream, &raw_path);
+	res = Stream_CreateFile(&stream, path);
 	if (res) return res;
 
 	res      = Stream_Write(&stream, data, length);
@@ -217,13 +209,10 @@ static cc_result Stream_PortionSkip(struct Stream* s, cc_uint32 count) {
 }
 
 static cc_result Stream_PortionPosition(struct Stream* s, cc_uint32* position) {
-	*position = s->meta.portion.length - s->meta.portion.left; 
-	return 0;
+	*position = s->meta.portion.length - s->meta.portion.left; return 0;
 }
-
 static cc_result Stream_PortionLength(struct Stream* s, cc_uint32* length) {
-	*length = s->meta.portion.length; 
-	return 0;
+	*length = s->meta.portion.length; return 0;
 }
 
 void Stream_ReadonlyPortion(struct Stream* s, struct Stream* source, cc_uint32 len) {

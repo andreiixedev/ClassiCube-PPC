@@ -24,16 +24,16 @@ cc_bool Utils_IsUrlPrefix(const cc_string* value) {
 }
 
 cc_bool Utils_EnsureDirectory(const char* dirName) {
-	cc_filepath raw_dir;
+	cc_filepath path;
 	cc_string dir;
 	cc_result res;
 	
 	dir = String_FromReadonly(dirName);
-	Platform_EncodePath(&raw_dir, &dir);
-	res = Directory_Create(&raw_dir);
+	Platform_EncodePath(&path, &dir);
+	res = Directory_Create(&path);
 
 	if (!res || res == ReturnCode_DirectoryExists) return true;
-	Logger_IOWarn2(res, "creating directory", &raw_dir);
+	Logger_SysWarn2(res, "creating directory", &dir);
 	return false;
 }
 
@@ -239,16 +239,14 @@ cc_result EntryList_Load(struct StringsBuffer* list, const char* file, char sepa
 
 	cc_uint8 buffer[2048];
 	struct Stream stream, buffered;
-	cc_filepath raw_path;
 	cc_result res;
 
 	path   = String_FromReadonly(file);
 	maxLen = list->_lenMask ? list->_lenMask : STRINGSBUFFER_DEF_LEN_MASK;
 	
-	Platform_EncodePath(&raw_path, &path);
-	res = Stream_OpenPath(&stream, &raw_path);
+	res = Stream_OpenFile(&stream, &path);
 	if (res == ReturnCode_FileNotFound) return res;
-	if (res) { Logger_IOWarn2(res, "opening", &raw_path); return res; }
+	if (res) { Logger_SysWarn2(res, "opening", &path); return res; }
 
 	/* ReadLine reads single byte at a time */
 	Stream_ReadonlyBuffered(&buffered, &stream, buffer, sizeof(buffer));
@@ -258,7 +256,7 @@ cc_result EntryList_Load(struct StringsBuffer* list, const char* file, char sepa
 
 		res = Stream_ReadLine(&buffered, &entry);
 		if (res == ERR_END_OF_STREAM) break;
-		if (res) { Logger_IOWarn2(res, "reading from", &raw_path); break; }
+		if (res) { Logger_SysWarn2(res, "reading from", &path); break; }
 		
 		/* whitespace lines are ignored (e.g. if user manually edits file) */
 		String_UNSAFE_TrimStart(&entry);
@@ -296,25 +294,23 @@ cc_result EntryList_UNSAFE_Load(struct StringsBuffer* list, const char* file) {
 void EntryList_Save(struct StringsBuffer* list, const char* file) {
 	cc_string path, entry; char pathBuffer[FILENAME_SIZE];
 	struct Stream stream;
-	cc_filepath raw_path;
-	cc_result res;
 	int i;
+	cc_result res;
 
 	String_InitArray(path, pathBuffer);
 	String_AppendConst(&path, file);
 	
-	Platform_EncodePath(&raw_path, &path);
-	res = Stream_CreatePath(&stream, &raw_path);
-	if (res) { Logger_IOWarn2(res, "creating", &raw_path); return; }
+	res = Stream_CreateFile(&stream, &path);
+	if (res) { Logger_SysWarn2(res, "creating", &path); return; }
 
 	for (i = 0; i < list->count; i++) {
 		StringsBuffer_UNSAFE_GetRaw(list, i, &entry);
 		res = Stream_WriteLine(&stream, &entry);
-		if (res) { Logger_IOWarn2(res, "writing to", &raw_path); break; }
+		if (res) { Logger_SysWarn2(res, "writing to", &path); break; }
 	}
 
 	res = stream.Close(&stream);
-	if (res) { Logger_IOWarn2(res, "closing", &raw_path); }
+	if (res) { Logger_SysWarn2(res, "closing", &path); }
 }
 
 cc_bool EntryList_Remove(struct StringsBuffer* list, const cc_string* key, char separator) {

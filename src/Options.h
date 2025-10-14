@@ -5,7 +5,7 @@ CC_BEGIN_HEADER
 
 /* 
 Manages loading and saving options
-Copyright 2014-2025 ClassiCube | Licensed under BSD-3
+Copyright 2014-2023 ClassiCube | Licensed under BSD-3
 */
 
 #define OPT_MUSIC_VOLUME "musicvolume"
@@ -30,7 +30,6 @@ Copyright 2014-2025 ClassiCube | Licensed under BSD-3
 #define OPT_CHAT_LOGGING "chat-logging"
 #define OPT_WINDOW_WIDTH "window-width"
 #define OPT_WINDOW_HEIGHT "window-height"
-#define OPT_AUTO_PAUSE "auto-pause"
 
 #define OPT_HACKS_ENABLED "hacks-hacksenabled"
 #define OPT_FIELD_OF_VIEW "hacks-fov"
@@ -86,9 +85,6 @@ Copyright 2014-2025 ClassiCube | Licensed under BSD-3
 #define OPT_GAME_VERSION "game-version"
 #define OPT_INV_SCROLLBAR_SCALE "inv-scrollbar-scale"
 #define OPT_ANAGLYPH3D "anaglyph-3d"
-
-#define Option_GetOffsetX(defValue) Options_GetInt("offset-x", 0, 1000, defValue);
-#define Option_GetOffsetY(defValue) Options_GetInt("offset-y", 0, 1000, defValue);
 
 #define OPT_SELECTED_BLOCK_OUTLINE_COLOR "selected-block-outline-color"
 #define OPT_SELECTED_BLOCK_OUTLINE_OPACITY "selected-block-outline-opacity"

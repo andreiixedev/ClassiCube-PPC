@@ -1,5 +1,5 @@
 #include "LWeb.h"
-#ifndef CC_DISABLE_LAUNCHER
+#ifndef CC_BUILD_WEB
 #include "String.h"
 #include "Launcher.h"
 #include "Platform.h"
@@ -67,7 +67,6 @@ static int Json_ConsumeToken(struct JsonContext* ctx) {
 
 	/* invalid token */
 	JsonContext_Consume(ctx, 1);
-	ctx->failed = true;
 	return TOKEN_NONE;
 }
 
@@ -99,7 +98,8 @@ static void Json_ConsumeString(struct JsonContext* ctx, cc_string* str) {
 
 		codepoint = (h[0] << 12) | (h[1] << 8) | (h[2] << 4) | h[3];
 		/* don't want control characters in names/software */
-		if (codepoint >= 32) String_Append(str, Convert_CodepointToCP437(codepoint));
+		/* TODO: Convert to CP437.. */
+		if (codepoint >= 32) String_Append(str, codepoint);
 		JsonContext_Consume(ctx, 4);
 	}
 
@@ -211,7 +211,7 @@ static cc_bool Json_Handle(cc_uint8* data, cc_uint32 len,
 *#########################################################################################################################*/
 static char servicesBuffer[FILENAME_SIZE];
 static cc_string servicesServer = String_FromArray(servicesBuffer);
-static struct StringsBuffer CC_BIG_VAR ccCookies;
+static struct StringsBuffer ccCookies;
 
 static void LWebTask_Reset(struct LWebTask* task) {
 	task->completed = false;
@@ -341,10 +341,7 @@ static void SignInTask_Handle(cc_uint8* data, cc_uint32 len) {
 	static cc_string err_msg = String_FromConst("Error parsing sign in response JSON");
 
 	cc_bool success = Json_Handle(data, len, SignInTask_OnValue, NULL, NULL);
-	if (success) return;
-	
-	SignInTask.error = "&cError parsing response";
-	Logger_WarnFunc(&err_msg);
+	if (!success) Logger_WarnFunc(&err_msg);
 }
 
 static void SignInTask_Append(cc_string* dst, const char* key, const cc_string* value) {
@@ -710,7 +707,6 @@ void Flags_Free(void) {
 static cc_string sessionKey = String_FromConst("session");
 static cc_bool loadedSession;
 
-#ifdef CC_BUILD_NETWORKING
 void Session_Load(void) {
 	cc_string session; char buffer[3072];
 	if (loadedSession) return;
@@ -729,10 +725,4 @@ void Session_Save(void) {
 	if (!session.length) return;
 	Options_SetSecure(LOPT_SESSION, &session);
 }
-#else
-void Session_Load(void) { }
-
-void Session_Save(void) { }
-#endif
-
 #endif

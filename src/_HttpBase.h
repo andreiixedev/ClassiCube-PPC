@@ -19,15 +19,17 @@ void HttpRequest_Free(struct HttpRequest* request) {
 	request->data  = NULL;
 	request->size  = 0;
 	request->error = NULL;
-	request->_capacity = 0;
 }
 #define HttpRequest_Copy(dst, src) Mem_Copy(dst, src, sizeof(struct HttpRequest))
-
 
 /*########################################################################################################################*
 *----------------------------------------------------Http requests list---------------------------------------------------*
 *#########################################################################################################################*/
-#define HTTP_DEF_ELEMS 10
+#ifdef CC_BUILD_NETWORKING
+	#define HTTP_DEF_ELEMS 10
+#else
+	#define HTTP_DEF_ELEMS 1 /* TODO better unused code removal */
+#endif
 
 struct RequestList {
 	int count, capacity;
@@ -66,7 +68,7 @@ static void RequestList_Append(struct RequestList* list, struct HttpRequest* ite
 
 /* Removes the request at the given index */
 static void RequestList_RemoveAt(struct RequestList* list, int i) {
-	if (i < 0 || i >= list->count) Process_Abort("Tried to remove element at list end");
+	if (i < 0 || i >= list->count) Logger_Abort("Tried to remove element at list end");
 
 	for (; i < list->count - 1; i++) 
 	{
@@ -105,133 +107,6 @@ static void RequestList_Init(struct RequestList* list) {
 static void RequestList_Free(struct RequestList* list) {
 	if (list->entries != list->defaultEntries) Mem_Free(list->entries);
 	RequestList_Init(list);
-}
-
-
-/*########################################################################################################################*
-*---------------------------------------------------Common buffer code----------------------------------------------------*
-*#########################################################################################################################*/
-/* Ensures data buffer has enough space left to append amount bytes */
-static cc_bool Http_BufferExpand(struct HttpRequest* req, cc_uint32 amount) {
-	cc_uint32 newSize = req->size + amount;
-	cc_uint8* ptr;
-	if (newSize <= req->_capacity) return true;
-
-	if (!req->_capacity) {
-		/* Allocate initial storage */
-		req->_capacity = req->contentLength ? req->contentLength : 1;
-		req->_capacity = max(req->_capacity, newSize);
-
-		ptr = (cc_uint8*)Mem_TryAlloc(req->_capacity, 1);
-	} else {
-		/* Reallocate if capacity reached */
-		req->_capacity = newSize;
-		ptr = (cc_uint8*)Mem_TryRealloc(req->data, newSize, 1);
-	}
-
-	if (!ptr) return false;
-	req->data = ptr;
-	return true;
-}
-
-/* Increases size and updates current progress */
-static void Http_BufferExpanded(struct HttpRequest* req, cc_uint32 read) {
-	req->size += read;
-	if (req->contentLength) req->progress = (int)(100.0f * req->size / req->contentLength);
-}
-
-
-/*########################################################################################################################*
-*---------------------------------------------------Common header code----------------------------------------------------*
-*#########################################################################################################################*/
-static void Http_ParseCookie(struct HttpRequest* req, const cc_string* value) {
-	cc_string name, data;
-	int dataEnd;
-	String_UNSAFE_Separate(value, '=', &name, &data);
-	/* Cookie is: __cfduid=xyz; expires=abc; path=/; domain=.classicube.net; HttpOnly */
-	/* However only the __cfduid=xyz part of the cookie should be stored */
-	dataEnd = String_IndexOf(&data, ';');
-	if (dataEnd >= 0) data.length = dataEnd;
-
-	EntryList_Set(req->cookies, &name, &data, '=');
-}
-
-static void Http_ParseContentLength(struct HttpRequest* req, const cc_string* value) {
-	int contentLen = 0;
-	Convert_ParseInt(value, &contentLen);
-	
-	if (contentLen <= 0) return;
-	req->contentLength = contentLen;
-}
-
-/* Parses a HTTP header */
-static void Http_ParseHeader(struct HttpRequest* req, const cc_string* line) {
-	static const cc_string httpVersion = String_FromConst("HTTP");
-	cc_string name, value, parts[3];
-	int numParts;
-
-	/* HTTP[version] [status code] [status reason] */
-	if (String_CaselessStarts(line, &httpVersion)) {
-		numParts = String_UNSAFE_Split(line, ' ', parts, 3);
-		if (numParts >= 2) Convert_ParseInt(&parts[1], &req->statusCode);
-	}
-	/* For all other headers:  name: value */
-	if (!String_UNSAFE_Separate(line, ':', &name, &value)) return;
-
-	if (String_CaselessEqualsConst(&name, "ETag")) {
-		String_CopyToRawArray(req->etag, &value);
-	} else if (String_CaselessEqualsConst(&name, "Content-Length")) {
-		Http_ParseContentLength(req, &value);
-	} else if (String_CaselessEqualsConst(&name, "X-Dropbox-Content-Length")) {
-		/* dropbox stopped returning Content-Length header since switching to chunked transfer */
-		/*  https://www.dropboxforum.com/t5/Discuss-Dropbox-Developer-API/Dropbox-media-can-t-be-access-by-azure-blob/td-p/575458 */
-		Http_ParseContentLength(req, &value);
-	} else if (String_CaselessEqualsConst(&name, "Last-Modified")) {
-		String_CopyToRawArray(req->lastModified, &value);
-	} else if (req->cookies && String_CaselessEqualsConst(&name, "Set-Cookie")) {
-		Http_ParseCookie(req, &value);
-	}
-}
-
-/* Adds a http header to the request headers. */
-static void Http_AddHeader(struct HttpRequest* req, const char* key, const cc_string* value);
-
-/* Adds all the appropriate headers for a request. */
-static void Http_SetRequestHeaders(struct HttpRequest* req) {
-	static const cc_string contentType = String_FromConst("application/x-www-form-urlencoded");
-	cc_string str, cookies; char cookiesBuffer[1024];
-	int i;
-
-	if (req->lastModified[0]) {
-		str = String_FromRawArray(req->lastModified);
-		Http_AddHeader(req, "If-Modified-Since", &str);
-	}
-	if (req->etag[0]) {
-		str = String_FromRawArray(req->etag);
-		Http_AddHeader(req, "If-None-Match", &str);
-	}
-
-	if (req->data) Http_AddHeader(req, "Content-Type", &contentType);
-	if (!req->cookies || !req->cookies->count) return;
-
-	String_InitArray(cookies, cookiesBuffer);
-	for (i = 0; i < req->cookies->count; i++) {
-		if (i) String_AppendConst(&cookies, "; ");
-		str = StringsBuffer_UNSAFE_Get(req->cookies, i);
-		String_AppendString(&cookies, &str);
-	}
-	Http_AddHeader(req, "Cookie", &cookies);
-}
-
-/* TODO: Rewrite to use a local variable instead */
-static cc_string* Http_GetUserAgent_UNSAFE(void) {
-	static char userAgentBuffer[STRING_SIZE];
-	static cc_string userAgent;
-
-	String_InitArray(userAgent, userAgentBuffer);
-	String_AppendConst(&userAgent, GAME_APP_NAME);
-	String_AppendConst(&userAgent, Platform_AppNameSuffix);
-	return &userAgent;
 }
 
 
@@ -284,6 +159,28 @@ static int Http_Add(const cc_string* url, cc_uint8 flags, cc_uint8 type, const c
 
 	HttpBackend_Add(&req, flags);
 	return req.id;
+}
+
+static const cc_string urlRewrites[] = {
+	String_FromConst("http://dl.dropbox.com/"),  String_FromConst("https://dl.dropboxusercontent.com/"),
+	String_FromConst("https://dl.dropbox.com/"), String_FromConst("https://dl.dropboxusercontent.com/"),
+	String_FromConst("https://www.imgur.com/"),  String_FromConst("https://i.imgur.com/"),
+	String_FromConst("https://imgur.com/"),      String_FromConst("https://i.imgur.com/"),
+};
+/* Converts say dl.dropbox.com/xyZ into dl.dropboxusercontent.com/xyz */
+static void Http_GetUrl(struct HttpRequest* req, cc_string* dst) {
+	cc_string url = String_FromRawArray(req->url);
+	cc_string part;
+	int i;
+
+	for (i = 0; i < Array_Elems(urlRewrites); i += 2) {
+		if (!String_CaselessStarts(&url, &urlRewrites[i])) continue;
+
+		part = String_UNSAFE_SubstringAt(&url, urlRewrites[i].length);
+		String_Format2(dst, "%s%s", &urlRewrites[i + 1], &part);
+		return;
+	}
+	String_Copy(dst, &url);
 }
 
 
@@ -404,7 +301,11 @@ void Http_LogError(const char* action, const struct HttpRequest* item) {
 *-----------------------------------------------------Http component------------------------------------------------------*
 *#########################################################################################################################*/
 static void Http_InitCommon(void) {
-	httpOnly    = Options_GetBool(OPT_HTTP_ONLY,    false);
+#if defined CC_BUILD_NDS
+	httpOnly    = Options_GetBool(OPT_HTTP_ONLY, true);
+#else
+	httpOnly    = Options_GetBool(OPT_HTTP_ONLY, false);
+#endif
 	httpsVerify = Options_GetBool(OPT_HTTPS_VERIFY, true);
 
 	Options_Get(OPT_SKIN_SERVER, &skinServer, SKINS_SERVER);

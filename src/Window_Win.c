@@ -344,11 +344,10 @@ void Window_Free(void) { }
 
 static ATOM DoRegisterClass(void) {
 	ATOM atom;
-	cc_result res;
-	WNDCLASSEXW wc   = { 0 };
-	wc.cbSize        = sizeof(WNDCLASSEXW);
-	wc.style         = CS_OWNDC; /* https://stackoverflow.com/questions/48663815/getdc-releasedc-cs-owndc-with-opengl-and-gdi */
-	wc.hInstance     = win_instance;
+	WNDCLASSEXW wc = { 0 };
+	wc.cbSize      = sizeof(WNDCLASSEXW);
+	wc.style       = CS_OWNDC; /* https://stackoverflow.com/questions/48663815/getdc-releasedc-cs-owndc-with-opengl-and-gdi */
+	wc.hInstance   = win_instance;
 	wc.lpfnWndProc   = Window_Procedure;
 	wc.lpszClassName = CC_WIN_CLASSNAME;
 
@@ -360,17 +359,7 @@ static ATOM DoRegisterClass(void) {
 
 	if ((atom = RegisterClassExW(&wc))) return atom;
 	/* Windows 9x does not support W API functions */
-	if ((atom = RegisterClassExA((const WNDCLASSEXA*)&wc))) return atom;
-	
-	/* Windows NT 3.5 does not support RegisterClassExA function */
-	res = GetLastError();
-	if (res == ERROR_CALL_NOT_IMPLEMENTED) {
-		if ((atom = RegisterClassA((const WNDCLASSA*)&wc.style))) return atom;
-		res = GetLastError();
-	}
-	
-	Process_Abort2(res, "Failed to register window class");
-	return (ATOM)0;
+	return RegisterClassExA((const WNDCLASSEXA*)&wc);
 }
 
 static HWND CreateWindowHandle(ATOM atom, int width, int height) {
@@ -394,7 +383,7 @@ static HWND CreateWindowHandle(ATOM atom, int width, int height) {
 			r.left, r.top, Rect_Width(r), Rect_Height(r), NULL, NULL, win_instance, NULL))) return hwnd;
 		res = GetLastError();
 	}
-	Process_Abort2(res, "Failed to create window");
+	Logger_Abort2(res, "Failed to create window");
 	return NULL;
 }
 
@@ -413,7 +402,7 @@ static void DoCreateWindow(int width, int height) {
 	RefreshWindowPosition();
 
 	win_DC = GetDC(hwnd);
-	if (!win_DC) Process_Abort2(GetLastError(), "Failed to get device context");
+	if (!win_DC) Logger_Abort2(GetLastError(), "Failed to get device context");
 
 	Window_Main.Exists     = true;
 	Window_Main.Handle.ptr = hwnd;
@@ -745,13 +734,8 @@ cc_result Window_SaveFileDialog(const struct SaveFileDialogArgs* args) {
 
 static HDC draw_DC;
 static HBITMAP draw_DIB;
-
 void Window_AllocFramebuffer(struct Bitmap* bmp, int width, int height) {
 	BITMAPINFO hdr = { 0 };
-	cc_result res;
-
-	bmp->width  = width;
-	bmp->height = height;
 	if (!draw_DC) draw_DC = CreateCompatibleDC(win_DC);
 	
 	/* sizeof(BITMAPINFO) does not work on Windows 9x */
@@ -762,60 +746,19 @@ void Window_AllocFramebuffer(struct Bitmap* bmp, int width, int height) {
 	hdr.bmiHeader.biPlanes   = 1; 
 
 	draw_DIB = CreateDIBSection(draw_DC, &hdr, DIB_RGB_COLORS, (void**)&bmp->scan0, NULL, 0);
-	if (draw_DIB) return;
-
-	res = GetLastError();
-	/* ERROR_CALL_NOT_IMPLEMENTED occurs with win32s */
-	if (res != ERROR_CALL_NOT_IMPLEMENTED) Process_Abort2(res, "Failed to create DIB");
-
-	bmp->scan0 = (BitmapCol*)Mem_Alloc(width * height, BITMAPCOLOR_SIZE, "window pixels");
-}
-
-/* Used by Win32s on windows 3.1 */
-static void DrawFramebufferSlow(Rect2D r, struct Bitmap* bmp) {
-	char buffer[640 * 3];
-	BITMAPINFO hdr = { 0 };
-	int x, y, width;
-
-	/* TODO partial update */
-	/* Have to use 24 bpp row by row, 32 bpp (and negative height) doesn't work */
-	hdr.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
-	hdr.bmiHeader.biWidth    = bmp->width;
-	hdr.bmiHeader.biHeight   = 1;
-	hdr.bmiHeader.biBitCount = 24;
-	hdr.bmiHeader.biPlanes   = 1; 
-
-	for (y = r.y; y < r.y + r.height; y++) 
-	{
-		BitmapCol* row = Bitmap_GetRow(bmp, y);
-		width = bmp->width;
-
-		for (x = 0; x < width; x++) 
-		{
-			BitmapCol rgb = row[x];
-			buffer[x * 3 + 0] = BitmapCol_B(rgb);
-			buffer[x * 3 + 1] = BitmapCol_G(rgb);
-			buffer[x * 3 + 2] = BitmapCol_R(rgb);
-		}
-
-		SetDIBitsToDevice(win_DC, 0, y, width, 1, 0, 0, 
-						0, 1, buffer, &hdr, DIB_RGB_COLORS);
-	}
+	if (!draw_DIB) Logger_Abort2(GetLastError(), "Failed to create DIB");
+	bmp->width  = width;
+	bmp->height = height;
 }
 
 void Window_DrawFramebuffer(Rect2D r, struct Bitmap* bmp) {
-	if (draw_DIB) {
-		HGDIOBJ oldSrc = SelectObject(draw_DC, draw_DIB);
-		BitBlt(win_DC, r.x, r.y, r.width, r.height, draw_DC, r.x, r.y, SRCCOPY);
-		SelectObject(draw_DC, oldSrc);
-	} else {
-		DrawFramebufferSlow(r, bmp);
-	}
+	HGDIOBJ oldSrc = SelectObject(draw_DC, draw_DIB);
+	BitBlt(win_DC, r.x, r.y, r.width, r.height, draw_DC, r.x, r.y, SRCCOPY);
+	SelectObject(draw_DC, oldSrc);
 }
 
 void Window_FreeFramebuffer(struct Bitmap* bmp) {
-	if (draw_DIB) DeleteObject(draw_DIB);
-	draw_DIB = NULL;
+	DeleteObject(draw_DIB);
 }
 
 static cc_bool rawMouseInited, rawMouseSupported;
@@ -869,34 +812,27 @@ void Window_DisableRawMouse(void) {
 *#########################################################################################################################*/
 #if CC_GFX_BACKEND_IS_GL() && !defined CC_BUILD_EGL
 static HGLRC ctx_handle;
-static HDC   ctx_DC;
+static HDC ctx_DC;
+typedef BOOL (WINAPI *FP_SWAPINTERVAL)(int interval);
+static FP_SWAPINTERVAL wglSwapIntervalEXT;
 static void* gl_lib;
 
-static HGLRC (WINAPI *_wglCreateContext)(HDC dc);
-static BOOL  (WINAPI *_wglDeleteContext)(HGLRC glrc);
-static HDC   (WINAPI *_wglGetCurrentDC)(void);
-static BOOL  (WINAPI *_wglMakeCurrent)(HDC dc, HGLRC glrc);
-static PROC  (WINAPI *_wglGetProcAddress)(LPCSTR func);
-
-typedef BOOL (WINAPI *FP_SWAPINTERVAL)(int interval);
-static FP_SWAPINTERVAL _wglSwapIntervalEXT;
-
-static void GLContext_SelectPixelFormat(void) {
+static void GLContext_SelectGraphicsMode(struct GraphicsMode* mode) {
 	PIXELFORMATDESCRIPTOR pfd = { 0 };
-	int modeIndex, bpp = DisplayInfo.Depth;
+	int modeIndex;
 
 	pfd.nSize = sizeof(PIXELFORMATDESCRIPTOR);
 	pfd.nVersion = 1;
 	pfd.dwFlags  = PFD_SUPPORT_OPENGL | PFD_DRAW_TO_WINDOW | PFD_DOUBLEBUFFER;
 	/* TODO: PFD_SUPPORT_COMPOSITION FLAG? CHECK IF IT WORKS ON XP */
 
-	pfd.cColorBits = bpp == 32 ? 24 : bpp; /* number of R + G + B bits */
+	pfd.cColorBits = mode->R + mode->G + mode->B;
 	pfd.cDepthBits = GLCONTEXT_DEFAULT_DEPTH;
 	pfd.iPixelType = PFD_TYPE_RGBA;
-	pfd.cAlphaBits = bpp == 32 ? 8 : 0; /* TODO not needed? test on Intel */
+	pfd.cAlphaBits = mode->A; /* TODO not needed? test on Intel */
 
 	modeIndex = ChoosePixelFormat(win_DC, &pfd);
-	if (modeIndex == 0) { Process_Abort("Requested graphics mode not available"); }
+	if (modeIndex == 0) { Logger_Abort("Requested graphics mode not available"); }
 
 	Mem_Set(&pfd, 0, sizeof(PIXELFORMATDESCRIPTOR));
 	pfd.nSize = sizeof(PIXELFORMATDESCRIPTOR);
@@ -905,49 +841,46 @@ static void GLContext_SelectPixelFormat(void) {
 	/* TODO DescribePixelFormat might be unnecessary? */
 	DescribePixelFormat(win_DC, modeIndex, pfd.nSize, &pfd);
 	if (!SetPixelFormat(win_DC, modeIndex, &pfd)) {
-		Process_Abort2(GetLastError(), "SetPixelFormat failed");
+		Logger_Abort2(GetLastError(), "SetPixelFormat failed");
 	}
 }
 
 void GLContext_Create(void) {
-	static const struct DynamicLibSym funcs[] = {
-		DynamicLib_ReqSym(wglCreateContext),
-		DynamicLib_ReqSym(wglDeleteContext),
-		DynamicLib_ReqSym(wglGetCurrentDC),
-		DynamicLib_ReqSym(wglMakeCurrent),
-		DynamicLib_OptSym(wglGetProcAddress)
-	};
 	static const cc_string glPath = String_FromConst("OPENGL32.dll");
-	DynamicLib_LoadAll(&glPath, funcs, Array_Elems(funcs), &gl_lib);
-	GLContext_SelectPixelFormat();
+	struct GraphicsMode mode;
 
-	ctx_handle = _wglCreateContext(win_DC);
+	InitGraphicsMode(&mode);
+	GLContext_SelectGraphicsMode(&mode);
+	gl_lib = DynamicLib_Load2(&glPath);
+
+	ctx_handle = wglCreateContext(win_DC);
 	if (!ctx_handle) {
-		Process_Abort2(GetLastError(), "Failed to create OpenGL context");
+		Logger_Abort2(GetLastError(), "Failed to create OpenGL context");
 	}
 
-	if (!_wglMakeCurrent(win_DC, ctx_handle)) {
-		Process_Abort2(GetLastError(), "Failed to make OpenGL context current");
+	if (!wglMakeCurrent(win_DC, ctx_handle)) {
+		Logger_Abort2(GetLastError(), "Failed to make OpenGL context current");
 	}
 
-	ctx_DC = _wglGetCurrentDC();
-	_wglSwapIntervalEXT = (FP_SWAPINTERVAL)GLContext_GetAddress("wglSwapIntervalEXT");
+	ctx_DC = wglGetCurrentDC();
+	wglSwapIntervalEXT = (FP_SWAPINTERVAL)GLContext_GetAddress("wglSwapIntervalEXT");
 }
 
 void GLContext_Update(void) { }
 cc_bool GLContext_TryRestore(void) { return true; }
-
 void GLContext_Free(void) {
 	if (!ctx_handle) return;
-	_wglDeleteContext(ctx_handle);
+	wglDeleteContext(ctx_handle);
 	ctx_handle = NULL;
 }
 
+static PROC (WINAPI *_wglGetProcAddress)(LPCSTR);
 /* https://www.khronos.org/opengl/wiki/Load_OpenGL_Functions#Windows */
 #define GLContext_IsInvalidAddress(ptr) (ptr == (void*)0 || ptr == (void*)1 || ptr == (void*)-1 || ptr == (void*)2)
 
 void* GLContext_GetAddress(const char* function) {
 	/* Not present on NT 3.5 */
+	if (!_wglGetProcAddress) _wglGetProcAddress = DynamicLib_Get2(gl_lib, "wglGetProcAddress");
 	if (_wglGetProcAddress) {
 		void* addr = (void*)_wglGetProcAddress(function);
 		if (!GLContext_IsInvalidAddress(addr)) return addr;
@@ -958,13 +891,13 @@ void* GLContext_GetAddress(const char* function) {
 }
 
 cc_bool GLContext_SwapBuffers(void) {
-	if (!SwapBuffers(ctx_DC)) Process_Abort2(GetLastError(), "Failed to swap buffers");
+	if (!SwapBuffers(ctx_DC)) Logger_Abort2(GetLastError(), "Failed to swap buffers");
 	return true;
 }
 
 void GLContext_SetVSync(cc_bool vsync) {
-	if (!_wglSwapIntervalEXT) return;
-	_wglSwapIntervalEXT(vsync);
+	if (!wglSwapIntervalEXT) return;
+	wglSwapIntervalEXT(vsync);
 }
 void GLContext_GetApiInfo(cc_string* info) { }
 #endif

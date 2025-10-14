@@ -1,5 +1,5 @@
 #include "Event.h"
-#include "Platform.h"
+#include "Logger.h"
 
 int EventAPIVersion = 4;
 struct _EntityEventsList        EntityEvents;
@@ -21,12 +21,12 @@ void Event_Register(struct Event_Void* handlers, void* obj, Event_Void_Callback 
 	for (i = 0; i < handlers->Count; i++) {
 		/* Attempting to register the same handler twice is usually caused by a bug */
 		if (handlers->Handlers[i] == handler && handlers->Objs[i] == obj) {
-			Process_Abort("Attempt to register event handler that was already registered");
+			Logger_Abort("Attempt to register event handler that was already registered");
 		}
 	}
 
 	if (handlers->Count == EVENT_MAX_CALLBACKS) {
-		Process_Abort("Unable to register another event handler");
+		Logger_Abort("Unable to register another event handler");
 	} else {
 		handlers->Handlers[handlers->Count] = handler;
 		handlers->Objs[handlers->Count]     = obj;
@@ -181,10 +181,10 @@ void Event_RaiseRawMove(struct Event_RawMove* handlers, float xDelta, float yDel
 	}
 }
 
-void Event_RaisePadAxis(struct Event_PadAxis* handlers, struct PadAxisUpdate* upd) {
+void Event_RaisePadAxis(struct Event_PadAxis* handlers, int port, int axis, float x, float y) {
 	int i;
 	for (i = 0; i < handlers->Count; i++) {
-		handlers->Handlers[i](handlers->Objs[i], upd);
+		handlers->Handlers[i](handlers->Objs[i], port, axis, x, y);
 	}
 }
 

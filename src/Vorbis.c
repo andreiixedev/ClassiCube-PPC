@@ -7,7 +7,6 @@
 #include "Errors.h"
 #include "Stream.h"
 
-#if !defined CC_BUILD_ATARIOS && !defined CC_BUILD_AMIGA
 /*########################################################################################################################*
 *-------------------------------------------------------Ogg stream--------------------------------------------------------*
 *#########################################################################################################################*/
@@ -153,7 +152,7 @@ static cc_uint32 Vorbis_ReadBits(struct VorbisState* ctx, cc_uint32 bitsCount) {
 
 	while (ctx->NumBits < bitsCount) {
 		res = Ogg_ReadU8(ctx->source, &portion);
-		if (res) { Process_Abort2(res, "Failed to read byte for vorbis"); }
+		if (res) { Logger_Abort2(res, "Failed to read byte for vorbis"); }
 		Vorbis_PushByte(ctx, portion);
 	}
 
@@ -182,7 +181,7 @@ static cc_uint32 Vorbis_ReadBit(struct VorbisState* ctx) {
 
 	if (!ctx->NumBits) {
 		res = Ogg_ReadU8(ctx->source, &portion);
-		if (res) { Process_Abort2(res, "Failed to read byte for vorbis"); }
+		if (res) { Logger_Abort2(res, "Failed to read byte for vorbis"); }
 		Vorbis_PushByte(ctx, portion);
 	}
 
@@ -458,7 +457,7 @@ static cc_uint32 Codebook_DecodeScalar(struct VorbisState* ctx, struct Codebook*
 		codewords += c->numCodewords[depth];
 		values    += c->numCodewords[depth];
 	}
-	Process_Abort("Invalid huffman code");
+	Logger_Abort("Invalid huffman code");
 	return -1;
 }
 
@@ -488,7 +487,7 @@ static void Codebook_DecodeVectors(struct VorbisState* ctx, struct Codebook* c, 
 			if (c->sequenceP) last = value;
 		}
 	} else {
-		Process_Abort("Invalid huffman code");
+		Logger_Abort("Invalid huffman code");
 	}
 }
 
@@ -1673,5 +1672,3 @@ int Vorbis_OutputFrame(struct VorbisState* ctx, cc_int16* data) {
 	ctx->prevBlockSize = ctx->curBlockSize;
 	return (prevQrtr + curQrtr) * ctx->channels;
 }
-#endif
-

@@ -17,7 +17,6 @@
 #include "TexturePack.h"
 #include "Options.h"
 #include "Drawer2D.h"
-#include "Audio.h"
 
 #define COMMANDS_PREFIX "/client"
 #define COMMANDS_PREFIX_SPACE "/client "
@@ -274,7 +273,7 @@ static struct ChatCommand SkinCommand = {
 };
 
 static void ClearDeniedCommand_Execute(const cc_string* args, int argsCount) {
-	int count = TextureUrls_ClearDenied();
+	int count = TextureCache_ClearDenied();
 	Chat_Add1("Removed &e%i &fdenied texture pack URLs.", &count);
 }
 

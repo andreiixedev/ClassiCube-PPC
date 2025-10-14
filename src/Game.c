@@ -44,7 +44,7 @@
 
 struct _GameData Game;
 static cc_uint64 frameStart;
-cc_bool Game_UseCPEBlocks, Game_Running;
+cc_bool Game_UseCPEBlocks;
 
 struct RayTracer Game_SelectedPos;
 int Game_ViewDistance     = DEFAULT_VIEWDIST;
@@ -53,8 +53,8 @@ int Game_MaxViewDistance  = DEFAULT_MAX_VIEWDIST;
 
 int     Game_FpsLimit, Game_Vertices;
 cc_bool Game_SimpleArmsAnim;
+static cc_bool gameRunning;
 static float gfx_minFrameMs;
-static cc_bool autoPause;
 
 cc_bool Game_ClassicMode, Game_ClassicHacks;
 cc_bool Game_AllowCustomBlocks;
@@ -360,7 +360,6 @@ static void LoadOptions(void) {
 		ServicePointManager.ServerCertificateValidationCallback = delegate { return true; };
 		Options.Set("skip-ssl-check", false);
 	}*/
-	autoPause = Options_GetBool(OPT_AUTO_PAUSE, true);
 }
 
 #ifdef CC_BUILD_PLUGINS
@@ -409,7 +408,7 @@ static void LoadPlugins(void) {
 static void LoadPlugins(void) { }
 #endif
 
-static void Game_PendingClose(void* obj) { Game_Running = false; }
+static void Game_PendingClose(void* obj) { gameRunning = false; }
 static void Game_Load(void) {
 	struct IGameComponent* comp;
 	Game_UpdateDimensions();
@@ -476,13 +475,7 @@ static void Game_Load(void) {
 	}
 
 	entTaskI = ScheduledTask_Add(GAME_DEF_TICKS, Entities_Tick);
-	Gfx_WarnIfNecessary();
-
-	if (Gfx.Limitations & GFX_LIMIT_VERTEX_ONLY_FOG)
-		EnvRenderer_SetMode(EnvRenderer_Minimal | ENV_LEGACY);
-	if (Gfx.Limitations & GFX_LIMIT_MINIMAL)
-		EnvRenderer_SetMode(ENV_MINIMAL);
-
+	if (Gfx_WarnIfNecessary()) EnvRenderer_SetMode(EnvRenderer_Minimal | ENV_LEGACY);
 	Server.BeginConnect();
 }
 
@@ -593,11 +586,11 @@ static void PerformScheduledTasks(double time) {
 void Game_TakeScreenshot(void) {
 	cc_string filename; char fileBuffer[STRING_SIZE];
 	cc_string path;     char pathBuffer[FILENAME_SIZE];
-	struct cc_datetime now;
-	cc_filepath raw_path;
+	struct DateTime now;
 	cc_result res;
-
-#ifndef CC_BUILD_WEB
+#ifdef CC_BUILD_WEB
+	cc_filepath str;
+#else
 	struct Stream stream;
 #endif
 	Game_ScreenshotRequested = false;
@@ -609,24 +602,23 @@ void Game_TakeScreenshot(void) {
 
 #ifdef CC_BUILD_WEB
 	extern void interop_TakeScreenshot(const char* path);
-	Platform_EncodePath(&raw_path, &filename);
-	interop_TakeScreenshot(raw_path.buffer);
+	Platform_EncodePath(&str, &filename);
+	interop_TakeScreenshot(&str);
 #else
 	if (!Utils_EnsureDirectory("screenshots")) return;
 	String_InitArray(path, pathBuffer);
 	String_Format1(&path, "screenshots/%s", &filename);
 
-	Platform_EncodePath(&raw_path, &path);
-	res = Stream_CreatePath(&stream, &raw_path);
-	if (res) { Logger_IOWarn2(res, "creating", &raw_path); return; }
+	res = Stream_CreateFile(&stream, &path);
+	if (res) { Logger_SysWarn2(res, "creating", &path); return; }
 
 	res = Gfx_TakeScreenshot(&stream);
 	if (res) {
-		Logger_IOWarn2(res, "saving to", &raw_path); stream.Close(&stream); return;
+		Logger_SysWarn2(res, "saving to", &path); stream.Close(&stream); return;
 	}
 
 	res = stream.Close(&stream);
-	if (res) { Logger_IOWarn2(res, "closing", &raw_path); return; }
+	if (res) { Logger_SysWarn2(res, "closing", &path); return; }
 	Chat_Add1("&eTaken screenshot as: %s", &filename);
 
 #ifdef CC_BUILD_MOBILE
@@ -648,8 +640,6 @@ static CC_INLINE float ElapsedMilliseconds(cc_uint64 beg, cc_uint64 end) {
 	cc_uint64 elapsed = Stopwatch_ElapsedMicroseconds(beg, end);
 	if (elapsed > 5000000) elapsed = 5000000;
 	
-	/* Avoid uint64 / float division, as that typically gets implemented */
-	/* using a library function rather than a direct CPU instruction */
 	return (int)elapsed / 1000.0f;
 }
 
@@ -685,7 +675,7 @@ static CC_INLINE void Game_DrawFrame(float delta, float t) {
 	if (!Gui_GetBlocksWorld()) {
 		Camera.Active->GetPickedBlock(&Game_SelectedPos); /* TODO: only pick when necessary */
 		Camera_KeyLookUpdate(delta);
-		InputHandler_Tick(delta);
+		InputHandler_Tick();
 
 		if (Game_Anaglyph3D) {
 			Render3D_Anaglyph(delta, t);
@@ -709,10 +699,6 @@ static CC_INLINE void Game_DrawFrame(float delta, float t) {
 		extern void Gfx_SetTopRight(void);
 		Gfx_SetTopRight();
 		Gui_RenderGui(delta);
-	}
-	for (i = 0; i < Array_Elems(Game.Draw2DHooks); i++)
-	{
-		if (Game.Draw2DHooks[i]) Game.Draw2DHooks[i](delta);
 	}
 #endif
 	Gfx_End2D();
@@ -740,7 +726,7 @@ int Game_MapState(int deviceIndex) {
 }
 #endif
 
-void Game_RenderFrame(void) {
+static CC_INLINE void Game_RenderFrame(void) {
 	struct ScheduledTask entTask;
 	double deltaD;
 	float t, delta;
@@ -792,8 +778,7 @@ void Game_RenderFrame(void) {
 	Camera.Active->UpdateMouse(Entities.CurPlayer, delta);
 #endif
 
-	if (!Window_Main.Focused && !Gui.InputGrab && autoPause) 
-		Gui_ShowPauseMenu();
+	if (!Window_Main.Focused && !Gui.InputGrab) Gui_ShowPauseMenu();
 
 	if (Bind_IsTriggered[BIND_ZOOM_SCROLL] && !Gui.InputGrab) {
 		InputHandler_SetFOV(Camera.ZoomFov);
@@ -809,10 +794,8 @@ void Game_RenderFrame(void) {
 	EnvRenderer_UpdateFog();
 	AudioBackend_Tick();
 
-#if !defined CC_BUILD_SYMBIAN
 	/* TODO: Not calling Gfx_EndFrame doesn't work with Direct3D9 */
 	if (Window_Main.Inactive) return;
-#endif
 	Gfx_ClearBuffers(GFX_BUFFER_COLOR | GFX_BUFFER_DEPTH);
 	
 #ifdef CC_BUILD_SPLITSCREEN
@@ -841,10 +824,11 @@ void Game_RenderFrame(void) {
 
 	if (Game_ScreenshotRequested) Game_TakeScreenshot();
 	Gfx_EndFrame();
-	if (gfx_minFrameMs != 0.0f) LimitFPS();
+	if (gfx_minFrameMs) LimitFPS();
 }
 
-void Game_Free(void) {
+
+static void Game_Free(void) {
 	struct IGameComponent* comp;
 	/* Most components will call OnContextLost in their Free functions */
 	/* Set to false so components will always free managed textures too */
@@ -857,7 +841,7 @@ void Game_Free(void) {
 		if (comp->Free) comp->Free();
 	}
 
-	Game_Running    = false;
+	gameRunning     = false;
 	Logger_WarnFunc = Logger_DialogWarn;
 	Gfx_Free();
 	Options_SaveIfChanged();
@@ -865,8 +849,22 @@ void Game_Free(void) {
 }
 
 #ifdef CC_BUILD_WEB
+void Game_DoFrame(void) {
+	if (gameRunning) {
+		Game_RenderFrame();
+	} else if (tasksCount) {
+		Game_Free();
+		Window_Free();
+	}	
+}
+
+static void Game_RunLoop(void) {
+	/* Window_Web.c sets Game_DoFrame as the main loop callback function */
+	/* (i.e. web browser is in charge of calling Game_DoFrame, not us) */
+}
+
 cc_bool Game_ShouldClose(void) {
-	if (!Game_Running) return true;
+	if (!gameRunning) return true;
 
 	if (Server.IsSinglePlayer) {
 		/* Close if map was saved within last 5 seconds */
@@ -878,30 +876,27 @@ cc_bool Game_ShouldClose(void) {
 	/* Also try to intercept mouse back button (Mouse4) */
 	return !Input.Pressed[CCMOUSE_X1];
 }
+#else
+static void Game_RunLoop(void) {
+	while (gameRunning)
+	{
+		Game_RenderFrame();
+	}
+	Game_Free();
+}
 #endif
 
-void Game_Setup(void) {
-	cc_string title; char titleBuffer[STRING_SIZE];
-	int width  = Options_GetInt(OPT_WINDOW_WIDTH,  0, DisplayInfo.Width,  0);
-	int height = Options_GetInt(OPT_WINDOW_HEIGHT, 0, DisplayInfo.Height, 0);
-
-	/* No custom resolution has been set */
-	if (width == 0 || height == 0) {
-		width = 854; height = 480;
-		if (DisplayInfo.Width < 854) width = 640;
-	}
-	
-	String_InitArray(title, titleBuffer);
-	String_Format2(&title, "%c (%s)", GAME_APP_TITLE, &Game_Username);
-	
+void Game_Run(int width, int height, const cc_string* title) {
 	Window_Create3D(width, height);
-	Window_SetTitle(&title);
+	Window_SetTitle(title);
 	Window_Show();
-	Game_Running = true;
+	gameRunning = true;
 	Game.CurrentState = 0;
 
 	Game_Load();
 	Event_RaiseVoid(&WindowEvents.Resized);
-	frameStart = Stopwatch_Measure();
-}
 
+	frameStart = Stopwatch_Measure();
+	Game_RunLoop();
+	Window_Destroy();
+}

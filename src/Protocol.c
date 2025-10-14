@@ -33,8 +33,6 @@
 #include "InputHandler.h"
 #include "HeldBlockRenderer.h"
 #include "Options.h"
-#include "Screens.h"
-#include "Audio.h"
 
 struct _ProtocolData Protocol;
 
@@ -80,7 +78,7 @@ static struct CpeExt
 	bulkBlockUpdate_Ext = { "BulkBlockUpdate", 1 },
 	textColors_Ext      = { "TextColors", 1 },
 	envMapAspect_Ext    = { "EnvMapAspect", 2 },
-	entityProperty_Ext  = { "EntityProperty", 2 },
+	entityProperty_Ext  = { "EntityProperty", 1 },
 	extEntityPos_Ext    = { "ExtEntityPositions", 1 },
 	twoWayPing_Ext      = { "TwoWayPing", 1 },
 	invOrder_Ext        = { "InventoryOrder", 1 },
@@ -94,8 +92,7 @@ static struct CpeExt
 	pluginMessages_Ext  = { "PluginMessages", 1 },
 	extTeleport_Ext     = { "ExtEntityTeleport", 1 },
 	lightingMode_Ext    = { "LightingMode", 1 },
-	cinematicGui_Ext    = { "CinematicGui", 1 },
-	notifyAction_Ext    = { "NotifyAction", 1 },
+	cinematicGui_Ext   = { "CinematicGui", 1 },
 	extTextures_Ext     = { "ExtendedTextures", 1 },
 	extBlocks_Ext       = { "ExtendedBlocks", 1 };
 
@@ -105,7 +102,7 @@ static struct CpeExt* cpe_clientExtensions[] = {
 	&messageTypes_Ext, &hackControl_Ext, &playerClick_Ext, &fullCP437_Ext, &longerMessages_Ext, &blockDefs_Ext,
 	&blockDefsExt_Ext, &bulkBlockUpdate_Ext, &textColors_Ext, &envMapAspect_Ext, &entityProperty_Ext, &extEntityPos_Ext,
 	&twoWayPing_Ext, &invOrder_Ext, &instantMOTD_Ext, &fastMap_Ext, &setHotbar_Ext, &setSpawnpoint_Ext, &velControl_Ext,
-	&customParticles_Ext, &pluginMessages_Ext, &extTeleport_Ext, &lightingMode_Ext, &cinematicGui_Ext, &notifyAction_Ext,
+	&customParticles_Ext, &pluginMessages_Ext, &extTeleport_Ext, &lightingMode_Ext, &cinematicGui_Ext,
 #ifdef CUSTOM_MODELS
 	&customModels_Ext,
 #endif
@@ -630,10 +627,6 @@ static void Classic_LevelFinalise(cc_uint8* data) {
 		Chat_AddRaw("&cFailed to load map, try joining a different map");
 		Chat_Add2(  "   &cBlocks array size (%i) does not match volume of map (%i)", &map_volume, &volume);
 		FreeMapStates();
-	} else if (!World_CheckVolume(width, height, length)) {
-		Chat_AddRaw("&cFailed to load map, try joining a different map");
-		Chat_AddRaw("   &cAttempted to load map over 2 GB in size");
-		FreeMapStates();
 	}
 	
 #ifdef EXTENDED_BLOCKS
@@ -903,32 +896,6 @@ void CPE_SendPluginMessage(cc_uint8 channel, cc_uint8* data) {
 	Server.SendData(buffer, 66);
 }
 
-void CPE_SendNotifyAction(int action, cc_uint16 value) {
-	cc_uint8 data[5];
-	if (!Server.SupportsNotifyAction) return;
-
-	data[0] = OPCODE_NOTIFY_ACTION;
-	{
-		Stream_SetU16_BE(data + 1, action);
-		Stream_SetU16_BE(data + 3, value);
-	}
-	Server.SendData(data, 5);
-}
-
-void CPE_SendNotifyPositionAction(int action, int x, int y, int z) {
-	cc_uint8 data[9];
-	if (!Server.SupportsNotifyAction) return;
-
-	data[0] = OPCODE_NOTIFY_POSITION_ACTION;
-	{
-		Stream_SetU16_BE(data + 1, action);
-		Stream_SetU16_BE(data + 3, x);
-		Stream_SetU16_BE(data + 5, y);
-		Stream_SetU16_BE(data + 7, z);
-	}
-	Server.SendData(data, 9);
-}
-
 static void CPE_SendExtInfo(int extsCount) {
 	cc_uint8 data[67];
 	data[0] = OPCODE_EXT_INFO;
@@ -1046,8 +1013,6 @@ static void CPE_ExtEntry(cc_uint8* data) {
 		if (ext->serverVersion == 2) {
 			Protocol.Sizes[OPCODE_DEFINE_MODEL_PART] = 167;
 		}
-	} else if (ext == &notifyAction_Ext) {
-		Server.SupportsNotifyAction = true;
 	}
 #ifdef EXTENDED_TEXTURES
 	else if (ext == &extTextures_Ext) {
@@ -1428,12 +1393,6 @@ static void CPE_SetEntityProperty(cc_uint8* data) {
 
 		Entity_UpdateModelBounds(e);
 		return;
-	case 6:
-		scale = value / 1000.0f;
-		if (scale < -1024.0f) scale = -1024.0f;
-		if (scale >  1024.0f) scale =  1024.0f;
-		e->PushStrength = scale;
-		return;
 	default:
 		return;
 	}
@@ -1613,17 +1572,6 @@ static void CPE_CinematicGui(cc_uint8* data) {
 	Gui.BarSize = (float)barSize / UInt16_MaxValue;
 }
 
-static void CPE_ToggleBlockList(cc_uint8* data) {
-	cc_bool closeBlockList = data[0];
-
-	if (closeBlockList) {
-		InventoryScreen_Hide();
-	}
-	else {
-		InventoryScreen_Show();
-	}
-}
-
 static void CPE_Reset(void) {
 	cpe_serverExtensionsCount = 0; cpe_pingTicks = 0;
 	CPEExtensions_Reset();
@@ -1668,7 +1616,6 @@ static void CPE_Reset(void) {
 	Net_Set(OPCODE_ENTITY_TELEPORT_EXT, CPE_ExtEntityTeleport, 11);
 	Net_Set(OPCODE_LIGHTING_MODE, CPE_LightingMode, 3);
 	Net_Set(OPCODE_CINEMATIC_GUI, CPE_CinematicGui, 10);
-	Net_Set(OPCODE_TOGGLE_BLOCK_LIST, CPE_ToggleBlockList, 2);
 }
 
 static cc_uint8* CPE_Tick(cc_uint8* data) {
@@ -1988,8 +1935,6 @@ static void OnReset(void) {
 }
 #else
 void CPE_SendPlayerClick(int button, cc_bool pressed, cc_uint8 targetId, struct RayTracer* t) { }
-void CPE_SendNotifyAction(int action, cc_uint16 value) { }
-void CPE_SendNotifyPositionAction(int action, int x, int y, int z) { }
 
 static void OnInit(void) { }
 

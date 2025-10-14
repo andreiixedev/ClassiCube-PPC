@@ -7,7 +7,7 @@ CC_BEGIN_HEADER
 /* Renders the blocks of the world by subdividing it into chunks.
    Also manages the process of building/deleting chunk meshes.
    Also sorts chunks so nearest chunks are rendered first, and calculates chunk visibility.
-   Copyright 2014-2025 ClassiCube | Licensed under BSD-3
+   Copyright 2014-2023 ClassiCube | Licensed under BSD-3
 */
 struct IGameComponent;
 extern struct IGameComponent MapRenderer_Component;
@@ -22,7 +22,7 @@ extern struct ChunkPartInfo* MapRenderer_PartsTranslucent;
 
 /* Describes a portion of the data needed for rendering a chunk. */
 struct ChunkPartInfo {
-#if CC_GFX_BACKEND == CC_GFX_BACKEND_GL11
+#ifdef CC_BUILD_GL11
 	/* 1 VB per face, another VB for sprites */
 	#define CHUNKPART_MAX_VBS (FACE_COUNT + 1)
 	GfxResourceID vbs[CHUNKPART_MAX_VBS];
@@ -54,7 +54,7 @@ struct ChunkInfo {
 	public cc_bool Visited = false, Occluded = false;
 	public byte OcclusionFlags, OccludedFlags, DistanceFlags;
 #endif
-#if CC_GFX_BACKEND != CC_GFX_BACKEND_GL11
+#ifndef CC_BUILD_GL11
 	GfxResourceID vb;
 #endif
 	struct ChunkPartInfo* normalParts;
